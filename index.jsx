@@ -1,25 +1,22 @@
 module.exports = (Plugin, Library) => {
     "use strict";
 
-    const {Logger, Patcher, WebpackModules, DiscordModules, DOMTools, PluginUtilities, ContextMenu, Settings, Popouts} = Library;
+    const {Logger, Patcher, WebpackModules, DiscordModules, DOMTools, PluginUtilities, ContextMenu, Settings} = Library;
     const {SettingPanel, Slider} = Settings;
     const {Dispatcher, React, SelectedChannelStore, SelectedGuildStore} = DiscordModules;
 
     // Set globals
     const fileCheckMod = WebpackModules.getByProps("anyFileTooLarge", "maxFileSize");
-    const fileUploadMod = WebpackModules.getByProps("instantBatchUpload", "upload");
 
     // Utility modules
     const channelMod = BdApi.findModuleByProps("getChannel", "getMutablePrivateChannels", "hasChannel");
     const messagesMod = BdApi.findModuleByProps("hasCurrentUserSentMessage", "getMessage");
-    const guildMod = BdApi.findModuleByProps("getGuild");
-    const guildIDMod = BdApi.findModuleByProps("getGuildId");
     const userMod = BdApi.findModuleByProps("getCurrentUser");
     const permissionsMod = BdApi.findModuleByProps("computePermissions");
     const deleteMod = BdApi.findModuleByProps("deleteMessage", "dismissAutomatedMessage");
-    const HeaderBarContainer = WebpackModules.find(mod => mod.default?.displayName === "HeaderBarContainer");
     const MessageAccessories = WebpackModules.find(mod => mod.MessageAccessories.displayName === "MessageAccessories");
     const Attachment = WebpackModules.find(m => m.default?.displayName === "Attachment");
+    const MessageAttachmentManager = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("addFiles"));
 
     const activeDownloads = new Map();
 
@@ -115,7 +112,7 @@ module.exports = (Plugin, Library) => {
                 }
                 chunkSet.add(buffer[2]);
                 numChunks = buffer[3];
-                outputFile.write(buffer.slice(4));
+                outputFile.write(buffer.subarray(4));
             }
             // Go through chunk set one by one to make sure that the values are contiguous
             if (!isSetLinear(chunkSet) || chunkSet.size === 0) {
@@ -217,9 +214,7 @@ module.exports = (Plugin, Library) => {
     }
 
     const defaultSettingsData = {
-        deletionDelay: 9,
-        uploadDelay: 9,
-        uploadBatchSize: 3
+        deletionDelay: 9
     };
     let settings = null;
 
@@ -230,9 +225,6 @@ module.exports = (Plugin, Library) => {
     // Default values for how long to wait to delete or upload a chunk file
     // Values should be around the time a normal user would take to delete or upload each file
     const validActionDelays = [6, 7, 8, 9, 10, 11, 12];
-
-    // Default values for how many files can be uploaded per upload cycle
-    const validUploadBatchSizes = [...Array(11).keys()].slice(1);
 
     class SplitLargeFiles extends Plugin {
         onStart() {
@@ -272,49 +264,16 @@ module.exports = (Plugin, Library) => {
 
             Patcher.instead(fileCheckMod, "uploadSumTooLarge", (_, __, ___) => {
                 return false;
-            })
+            });
 
             Patcher.instead(fileCheckMod, "getUploadFileSizeSum", (_, __, ___) => {
                 return 0;
-            })
-            // Inject flag argument so that this plugin can still get real max size for chunking but anything else gets a really big number
-            Patcher.instead(fileCheckMod, "maxFileSize", (_, args, original) => {
-                // Must be unwrapped this way otherwise errors occur with undefined unwrapping
-                const [arg, use_original] = args;
-                if (use_original) {
-                    return original(arg);
-                }
-                return Number.MAX_VALUE;
             });
 
-            // Patch upload call to either pass file unaltered if under limit or chunked if over
-            Patcher.instead(fileUploadMod, "upload", (_, args, original) => {
-                const [channelId, file, n] = args;
-                // Make sure we can upload at all
-                if (this.maxFileUploadSize() === 0) {
-                    BdApi.showToast("Failed to get max file upload size.", {type: "error"});
-                    return;
-                }
-                // Calculate chunks required
-                const [numChunks, numChunksWithHeaders] = this.calcNumChunks(file);
-                // Don't do anything if no changes needed
-                if (numChunks == 1) {
-                    original(...args);
-                    return;
-                } else if (numChunksWithHeaders > 255) { // Check to make sure the number of files when chunked with header is not greater than 255 otherwise fail
-                    BdApi.showToast("File size exceeds max chunk count of 255.", {type: "error"});
-                    return;
-                }
-
-                BdApi.showToast("Generating file chunks...", {type: "info"});
-                this.uploadLargeFiles([file], channelId, n);
-            });
-
-            Patcher.instead(fileUploadMod, "instantBatchUpload", (_, args, original) => {
+            Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{files, channelId, showLargeMessageDialog, draftType}], original) => {
                 let oversizedFiles = [];
                 let regularFiles = [];
-                for (let fIndex = 0; fIndex < args[1].length; fIndex++) {
-                    const file = args[1][fIndex];
+                for (const file of files) {
                     // Calculate chunks required
                     const [numChunks, numChunksWithHeaders] = this.calcNumChunks(file);
                     // Don't do anything if no changes needed
@@ -331,56 +290,37 @@ module.exports = (Plugin, Library) => {
                     oversizedFiles.push(file);
                 }
 
-                if (oversizedFiles.length > 0) {
-                    this.uploadLargeFiles(oversizedFiles, args[0], oversizedFiles.length > 1);
-                }
-
-                // args[1] = regularFiles;
-                if (regularFiles.length > 0) {
-                    original(args[0], regularFiles, args[2]);
-                }
-            })
-
-            Patcher.instead(fileUploadMod, "uploadFiles", (_, args, original) => {
-                const {channelId, draftType, options, parsedMessage, uploads} = args[0];
-
-                // Make sure we can upload at all
-                if (this.maxFileUploadSize() === 0) {
-                    BdApi.showToast("Failed to get max file upload size.", {type: "error"});
-                    return;
-                }
-
-                // Iterate over files to see which ones are oversized and move them to an array if they are
-                let oversizedFiles = [];
-                for (let fIndex = 0; fIndex < uploads.length; fIndex++) {
-                    const file = uploads[fIndex].item.file;
-                    // Calculate chunks required
-                    const [numChunks, numChunksWithHeaders] = this.calcNumChunks(file);
-                    // Don't do anything if no changes needed
-                    if (numChunks == 1) {
-                        continue;
-                    } else if (numChunksWithHeaders > 255) { // Check to make sure the number of files when chunked with header is not greater than 255 otherwise fail
-                        BdApi.showToast("File size exceeds max chunk count of 255.", {type: "error"});
+                this.splitLargeFiles(oversizedFiles).then(fileArrayArray => {
+                    if (fileArrayArray.length === 0) {
                         return;
                     }
 
-                    // File is oversized, remove it from the array and add it to oversized list
-                    uploads.splice(fIndex, 1);
-                    oversizedFiles.push(file);
-                    // Adjust index to be consistent with new array positioning
-                    fIndex--;
-                }
+                    original({
+                        files: regularFiles.concat.apply([], fileArrayArray),
+                        channelId: channelId,
+                        showLargeMessageDialog: showLargeMessageDialog,
+                        draftType: draftType
+                    });
+                });
 
-                // Call original function with modified arguments UNLESS there is no other content
-                if (uploads.length > 0 || parsedMessage.content.length > 0 || options.stickerIds.length > 0) {
-                    // original(channelId, files, n, message, stickers);
-                    original({channelId: channelId, draftType: draftType, options: options, parsedMessage: parsedMessage, uploads: uploads})
+                if (oversizedFiles.length === 0) {
+                    original({
+                        files: regularFiles.concat.apply([], fileArrayArray),
+                        channelId: channelId,
+                        showLargeMessageDialog: showLargeMessageDialog,
+                        draftType: draftType
+                    });
                 }
+            });
 
-                // Use batch uploader for chunk files
-                if (oversizedFiles.length > 0) {
-                    this.uploadLargeFiles(oversizedFiles, channelId, oversizedFiles.length > 1);
+            // Inject flag argument so that this plugin can still get real max size for chunking but anything else gets a really big number
+            Patcher.instead(fileCheckMod, "maxFileSize", (_, args, original) => {
+                // Must be unwrapped this way otherwise errors occur with undefined unwrapping
+                const [arg, use_original] = args;
+                if (use_original) {
+                    return original(arg);
                 }
+                return Number.MAX_VALUE;
             });
 
             Patcher.after(MessageAccessories.MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
@@ -396,9 +336,9 @@ module.exports = (Plugin, Library) => {
 
             // Adds onClick to download arrow button that for some reason doesn't have it already
             Patcher.after(Attachment, "default", (_, args, ret) => {
-                ret.props.children[2].props.onClick = args[0].onClick;
+                ret.props.children[0].props.children[2].props.onClick = args[0].onClick;
                 if (args[0].dlfc) {
-                    ret.props.children[0] = <FileIcon/>;
+                    ret.props.children[0].props.children[0] = <FileIcon/>;
                     // TODO: ret.props.children.splice(2, 0, <p>COPY</p>);
                 }
             });
@@ -491,44 +431,48 @@ module.exports = (Plugin, Library) => {
 
         // Splits and uploads a large file
         // Batch uploading should be disabled when multiple files need to be uploaded to prevent API spam
-        uploadLargeFiles(files, channelId, disableBatch=false) {
+        splitLargeFiles(files) {
             BdApi.showToast("Generating file chunks...", {type: "info"});
-            const batchSize = disableBatch ? 1 : settings.uploadBatchSize;
             
-            for (const file of files) {
+            let promises = [];
+            for (const fileContainer of files) {
+                const file = fileContainer.file;
                 // Convert file to bytes
-                file.arrayBuffer().then(buffer => {
-                    const fileBytes = new Uint8Array(buffer);
+                promises.push(new Promise((res, rej) => {
+                    file.arrayBuffer().then(buffer => {
+                        const fileBytes = new Uint8Array(buffer);
+    
+                        // Calculate chunks required
+                        const [numChunks, numChunksWithHeaders] = this.calcNumChunks(file);
+    
+                        // Write files with leading bit to determine order
+                        // Upload new chunked files
+                        const fileList = [];
+                        for (let chunk = 0; chunk < numChunksWithHeaders; chunk++) {
+                            // Get an offset with size 
+                            const baseOffset = chunk * (this.maxFileUploadSize() - 4);
+                            // Write header: "DF" (discord file) then protocol version then chunk number then total chunk count
+                            const headerBytes = new Uint8Array(4);
+                            headerBytes.set([0xDF, 0x00, chunk & 0xFF, numChunks & 0xFF]);
+                            // Slice original file with room for header
+                            const bytesToWrite = fileBytes.slice(baseOffset, baseOffset + this.maxFileUploadSize() - 4);
+                            // Add file to array
+                            fileList.push({
+                                file: new File([concatTypedArrays(headerBytes, bytesToWrite)], `${chunk}-${numChunks - 1}_${file.name}.dlfc`),
+                                platform: fileContainer.platform
+                            });
+                        }
 
-                    // Calculate chunks required
-                    const [numChunks, numChunksWithHeaders] = this.calcNumChunks(file);
-
-                    // Write files with leading bit to determine order
-                    // Upload new chunked files
-                    const fileList = [];
-                    for (let chunk = 0; chunk < numChunksWithHeaders; chunk++) {
-                        // Get an offset with size 
-                        const baseOffset = chunk * (this.maxFileUploadSize() - 4);
-                        // Write header: "DF" (discord file) then protocol version then chunk number then total chunk count
-                        const headerBytes = new Uint8Array(4);
-                        headerBytes.set([0xDF, 0x00, chunk & 0xFF, numChunks & 0xFF]);
-                        // Slice original file with room for header
-                        const bytesToWrite = fileBytes.slice(baseOffset, baseOffset + this.maxFileUploadSize() - 4);
-                        // Add file to array
-                        fileList.push(new File([concatTypedArrays(headerBytes, bytesToWrite)], `${chunk}-${numChunks - 1}_${file.name}.dlfc`));
-                    }
-
-                    // Upload through built-in batch system
-                    for (let i = 0; i < Math.ceil(fileList.length / batchSize); ++i) {
-                        setTimeout(() => fileUploadMod.instantBatchUpload(channelId, fileList.slice(i * batchSize, i * batchSize + batchSize), 0), settings.uploadDelay * i * 1000);
-                    }
-                }).catch(err => {
-                    Logger.error(err);
-                    BdApi.showToast("Failed to read file, please try again later.", {type: "error"})
-                });
+                        res(fileList);
+                    }).catch(err => {
+                        Logger.error(err);
+                        BdApi.showToast("Failed to read file, please try again later.", {type: "error"});
+                        rej();
+                    });
+                }));
             }
 
-            BdApi.showToast(`All files uploading (${batchSize} chunk${batchSize == 1 ? "" : "s"}/${settings.uploadDelay} seconds${disableBatch ? ", batch disabled" : ""})`, {type: "success"});
+            return Promise.all(promises)
         }
 
         // Returns numChunks and numChunksWithHeaders
@@ -540,26 +484,6 @@ module.exports = (Plugin, Library) => {
         getSettingsPanel() {
             reloadSettings();
             return new SettingPanel(() => { PluginUtilities.saveSettings("SplitLargeFiles", settings); }, 
-                new Slider("Chunk File Upload Batch Size", "Number of chunk files to queue per upload operation." + 
-                    " Setting this higher uploads your files faster but increases the chance of upload errors.", 
-                    validUploadBatchSizes[0], validUploadBatchSizes[validUploadBatchSizes.length - 1], settings.uploadBatchSize, newVal => {
-                        // Make sure value is in bounds
-                        if (newVal > validUploadBatchSizes[validUploadBatchSizes.length - 1] || newVal < validUploadBatchSizes[0]) {
-                            newVal = validUploadBatchSizes[0];
-                        }
-                        settings.uploadBatchSize = newVal;
-                    }, {markers: validUploadBatchSizes, stickToMarkers: true}),
-
-                new Slider("Chunk File Upload Delay", "How long to wait (in seconds) before uploading each chunk file batch." + 
-                    " If you plan on uploading VERY large files you should set this value high to avoid API spam.",
-                    validActionDelays[0], validActionDelays[validActionDelays.length - 1], settings.uploadDelay, newVal => {
-                        // Make sure value is in bounds
-                        if (newVal > validActionDelays[validActionDelays.length - 1] || newVal < validActionDelays[0]) {
-                            newVal = validActionDelays[0];
-                        }
-                        settings.uploadDelay = newVal;
-                    }, {markers: validActionDelays, stickToMarkers: true}),
-
                 new Slider("Chunk File Deletion Delay", "How long to wait (in seconds) before deleting each sequential message of a chunk file." + 
                     " If you plan on deleting VERY large files you should set this value high to avoid API spam.", 
                     validActionDelays[0], validActionDelays[validActionDelays.length - 1], settings.deletionDelay, newVal => {
@@ -704,12 +628,16 @@ module.exports = (Plugin, Library) => {
 
         // If index = -1, set all to specified
         setAttachmentVisibility(id, index, visible) {
-            const element = DOMTools.query(`#message-accessories-${id}`).children[index];
+            Logger.log(`Set attch vis: ${id} ${index} ${visible}`)
+            const parent = DOMTools.query(`#message-accessories-${id}`);
+            const element = parent.children[index];
             if (element) {
                 if (visible) {
-                    element.removeAttribute("hidden");
+                    parent.removeAttribute("style");
+                    element.removeAttribute("style");
                 } else {
-                    element.setAttribute("hidden", "");
+                    parent.setAttribute("style", "grid-row-gap: 0;");
+                    element.setAttribute("style", "display: none;");
                 }
             } else {
                 Logger.error(`Unable to find child DOM object at index ${index} with parent selector #message-accessories-${id}`);
