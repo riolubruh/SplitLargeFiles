@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.7.2
+ * @version 1.7.3
  * @author ImTheSquid
  * @authorId 262055523896131584
  * @website https://github.com/ImTheSquid/SplitLargeFiles
@@ -30,7 +30,7 @@
     WScript.Quit();
 
 @else@*/
-const config = {"info":{"name":"SplitLargeFiles","authors":[{"name":"ImTheSquid","discord_id":"262055523896131584","github_username":"ImTheSquid","twitter_username":"ImTheSquid11"}],"version":"1.7.2","description":"Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.","github":"https://github.com/ImTheSquid/SplitLargeFiles","github_raw":"https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"},"changelog":[{"title":"Bug Fixes","items":["Converted `dirtyDispatch` calls to `dispatch`"]}],"main":"bundled.js"};
+const config = {"info":{"name":"SplitLargeFiles","authors":[{"name":"ImTheSquid","discord_id":"262055523896131584","github_username":"ImTheSquid","twitter_username":"ImTheSquid11"}],"version":"1.7.3","description":"Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.","github":"https://github.com/ImTheSquid/SplitLargeFiles","github_raw":"https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"},"changelog":[{"title":"Bug Fixes","items":["Fixed issues due to new file upload backend"]}],"main":"bundled.js"};
 class Dummy {
     constructor() {this._config = config;}
     start() {}
