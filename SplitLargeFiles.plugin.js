@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.7.3
+ * @version 1.7.4
  * @author ImTheSquid
  * @authorId 262055523896131584
  * @website https://github.com/ImTheSquid/SplitLargeFiles
@@ -30,7 +30,7 @@
     WScript.Quit();
 
 @else@*/
-const config = {"info":{"name":"SplitLargeFiles","authors":[{"name":"ImTheSquid","discord_id":"262055523896131584","github_username":"ImTheSquid","twitter_username":"ImTheSquid11"}],"version":"1.7.3","description":"Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.","github":"https://github.com/ImTheSquid/SplitLargeFiles","github_raw":"https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"},"changelog":[{"title":"Bug Fixes","items":["Fixed issues due to new file upload backend"]}],"main":"bundled.js"};
+const config = {"info":{"name":"SplitLargeFiles","authors":[{"name":"ImTheSquid","discord_id":"262055523896131584","github_username":"ImTheSquid","twitter_username":"ImTheSquid11"}],"version":"1.7.4","description":"Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.","github":"https://github.com/ImTheSquid/SplitLargeFiles","github_raw":"https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"},"changelog":[{"title":"New Upload System Fixes","items":["Fixed regression where files under the limit were split."]}],"main":"bundled.js"};
 class Dummy {
     constructor() {this._config = config;}
     start() {}
@@ -272,34 +272,35 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{ files, channelId, showLargeMessageDialog, draftType }], original) => {
         let oversizedFiles = [];
         let regularFiles = [];
-        for (const file of files) {
-          const [numChunks, numChunksWithHeaders] = this.calcNumChunks(file);
+        for (const fileContainer of files) {
+          const [numChunks, numChunksWithHeaders] = this.calcNumChunks(fileContainer.file);
           if (numChunks == 1) {
-            regularFiles.push(file);
+            regularFiles.push(fileContainer);
             continue;
           } else if (numChunksWithHeaders > 255) {
             BdApi.showToast("File size exceeds max chunk count of 255.", { type: "error" });
             return;
           }
-          oversizedFiles.push(file);
+          oversizedFiles.push(fileContainer);
         }
-        this.splitLargeFiles(oversizedFiles).then((fileArrayArray2) => {
-          if (fileArrayArray2.length === 0) {
-            return;
-          }
+        if (oversizedFiles.length === 0) {
           original({
-            files: regularFiles.concat.apply([], fileArrayArray2),
+            files: regularFiles,
             channelId,
             showLargeMessageDialog,
             draftType
           });
-        });
-        if (oversizedFiles.length === 0) {
-          original({
-            files: regularFiles.concat.apply([], fileArrayArray),
-            channelId,
-            showLargeMessageDialog,
-            draftType
+        } else {
+          this.splitLargeFiles(oversizedFiles).then((fileArrayArray) => {
+            if (fileArrayArray.length === 0) {
+              return;
+            }
+            original({
+              files: regularFiles.concat.apply([], fileArrayArray),
+              channelId,
+              showLargeMessageDialog,
+              draftType
+            });
           });
         }
       });
@@ -383,10 +384,10 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         this.findAvailableDownloads();
       }, 1e4);
     }
-    splitLargeFiles(files) {
+    splitLargeFiles(fileContainers) {
       BdApi.showToast("Generating file chunks...", { type: "info" });
       let promises = [];
-      for (const fileContainer of files) {
+      for (const fileContainer of fileContainers) {
         const file = fileContainer.file;
         promises.push(new Promise((res, rej) => {
           file.arrayBuffer().then((buffer) => {
@@ -533,7 +534,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       }
     }
     setAttachmentVisibility(id, index, visible) {
-      Logger.log(`Set attch vis: ${id} ${index} ${visible}`);
       const parent = DOMTools.query(`#message-accessories-${id}`);
       const element = parent.children[index];
       if (element) {

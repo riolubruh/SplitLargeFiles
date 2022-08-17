@@ -273,13 +273,13 @@ module.exports = (Plugin, Library) => {
             Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{files, channelId, showLargeMessageDialog, draftType}], original) => {
                 let oversizedFiles = [];
                 let regularFiles = [];
-                for (const file of files) {
+                for (const fileContainer of files) {
                     // Calculate chunks required
-                    const [numChunks, numChunksWithHeaders] = this.calcNumChunks(file);
+                    const [numChunks, numChunksWithHeaders] = this.calcNumChunks(fileContainer.file);
                     // Don't do anything if no changes needed
                     if (numChunks == 1) {
                         // File is regular, add to regular list
-                        regularFiles.push(file);
+                        regularFiles.push(fileContainer);
                         continue;
                     } else if (numChunksWithHeaders > 255) { // Check to make sure the number of files when chunked with header is not greater than 255 otherwise fail
                         BdApi.showToast("File size exceeds max chunk count of 255.", {type: "error"});
@@ -287,28 +287,28 @@ module.exports = (Plugin, Library) => {
                     }
 
                     // File is oversized, add it to oversized list
-                    oversizedFiles.push(file);
+                    oversizedFiles.push(fileContainer);
                 }
 
-                this.splitLargeFiles(oversizedFiles).then(fileArrayArray => {
-                    if (fileArrayArray.length === 0) {
-                        return;
-                    }
-
+                if (oversizedFiles.length === 0) {
                     original({
-                        files: regularFiles.concat.apply([], fileArrayArray),
+                        files: regularFiles,
                         channelId: channelId,
                         showLargeMessageDialog: showLargeMessageDialog,
                         draftType: draftType
                     });
-                });
-
-                if (oversizedFiles.length === 0) {
-                    original({
-                        files: regularFiles.concat.apply([], fileArrayArray),
-                        channelId: channelId,
-                        showLargeMessageDialog: showLargeMessageDialog,
-                        draftType: draftType
+                } else {
+                    this.splitLargeFiles(oversizedFiles).then(fileArrayArray => {
+                        if (fileArrayArray.length === 0) {
+                            return;
+                        }
+    
+                        original({
+                            files: regularFiles.concat.apply([], fileArrayArray),
+                            channelId: channelId,
+                            showLargeMessageDialog: showLargeMessageDialog,
+                            draftType: draftType
+                        });
                     });
                 }
             });
@@ -431,11 +431,11 @@ module.exports = (Plugin, Library) => {
 
         // Splits and uploads a large file
         // Batch uploading should be disabled when multiple files need to be uploaded to prevent API spam
-        splitLargeFiles(files) {
+        splitLargeFiles(fileContainers) {
             BdApi.showToast("Generating file chunks...", {type: "info"});
             
             let promises = [];
-            for (const fileContainer of files) {
+            for (const fileContainer of fileContainers) {
                 const file = fileContainer.file;
                 // Convert file to bytes
                 promises.push(new Promise((res, rej) => {
@@ -628,7 +628,6 @@ module.exports = (Plugin, Library) => {
 
         // If index = -1, set all to specified
         setAttachmentVisibility(id, index, visible) {
-            Logger.log(`Set attch vis: ${id} ${index} ${visible}`)
             const parent = DOMTools.query(`#message-accessories-${id}`);
             const element = parent.children[index];
             if (element) {
