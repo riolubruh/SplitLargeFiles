@@ -17,6 +17,7 @@ module.exports = (Plugin, Library) => {
     const MessageAccessories = WebpackModules.find(mod => mod.MessageAccessories.displayName === "MessageAccessories");
     const Attachment = WebpackModules.find(m => m.default?.displayName === "Attachment");
     const MessageAttachmentManager = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("addFiles"));
+    const Constants = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("MAX_UPLOAD_COUNT"));
 
     const activeDownloads = new Map();
 
@@ -256,6 +257,8 @@ module.exports = (Plugin, Library) => {
             /**
              * UPLOAD MODULE
              */
+
+            Constants.MAX_UPLOAD_COUNT = 255;
 
             // Make all file too large checks succeed
             Patcher.instead(fileCheckMod, "anyFileTooLarge", (_, __, ___) => {
