@@ -7,14 +7,14 @@
             "github_username": "ImTheSquid",
             "twitter_username": "ImTheSquid11"
         }],
-        "version": "1.7.5",
+        "version": "1.7.6",
         "description": "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         "github": "https://github.com/ImTheSquid/SplitLargeFiles",
         "github_raw": "https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"
     },
     "changelog": [
-        {"title": "Limitless Potential", "items": [
-            "Removed 10 file upload limit."
+        {"title": "Bug Fixes", "items": [
+            "Hotfix to prevent rate limiting. Messages must be sent in groups of 10 manually."
         ]}
     ],
     "main": "bundled.js"

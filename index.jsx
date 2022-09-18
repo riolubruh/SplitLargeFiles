@@ -3,7 +3,7 @@ module.exports = (Plugin, Library) => {
 
     const {Logger, Patcher, WebpackModules, DiscordModules, DOMTools, PluginUtilities, ContextMenu, Settings} = Library;
     const {SettingPanel, Slider} = Settings;
-    const {Dispatcher, React, SelectedChannelStore, SelectedGuildStore} = DiscordModules;
+    const {Dispatcher, React, SelectedChannelStore, SelectedGuildStore, UserStore} = DiscordModules;
 
     // Set globals
     const fileCheckMod = WebpackModules.getByProps("anyFileTooLarge", "maxFileSize");
@@ -18,6 +18,12 @@ module.exports = (Plugin, Library) => {
     const Attachment = WebpackModules.find(m => m.default?.displayName === "Attachment");
     const MessageAttachmentManager = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("addFiles"));
     const Constants = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("MAX_UPLOAD_COUNT"));
+
+    const BATCH_SIZE = 10;
+    const BATCH_DELAY_MS = 6_000;
+
+    // Stores a map of channel IDs to queued chunks
+    const queuedUploads = new Map();
 
     const activeDownloads = new Map();
 
@@ -273,7 +279,7 @@ module.exports = (Plugin, Library) => {
                 return 0;
             });
 
-            Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{files, channelId, showLargeMessageDialog, draftType}], original) => {
+            Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{files, channelId}], original) => {
                 let oversizedFiles = [];
                 let regularFiles = [];
                 for (const fileContainer of files) {
@@ -297,20 +303,28 @@ module.exports = (Plugin, Library) => {
                     original({
                         files: regularFiles,
                         channelId: channelId,
-                        showLargeMessageDialog: showLargeMessageDialog,
-                        draftType: draftType
+                        showLargeMessageDialog: false,
+                        draftType: 0
                     });
                 } else {
                     this.splitLargeFiles(oversizedFiles).then(fileArrayArray => {
                         if (fileArrayArray.length === 0) {
                             return;
                         }
+
+                        const fileArray = regularFiles.concat.apply([], fileArrayArray);
+
+                        if (queuedUploads.has(channelId)) {
+                            queuedUploads.get(channelId).push(fileArray);
+                        } else {
+                            queuedUploads.set(channelId, fileArray);
+                        }
     
                         original({
-                            files: regularFiles.concat.apply([], fileArrayArray),
+                            files: queuedUploads.get(channelId).splice(0, BATCH_SIZE),
                             channelId: channelId,
-                            showLargeMessageDialog: showLargeMessageDialog,
-                            draftType: draftType
+                            showLargeMessageDialog: false,
+                            draftType: 0
                         });
                     });
                 }
@@ -352,11 +366,23 @@ module.exports = (Plugin, Library) => {
 
             this.messageCreate = e => {
                 // Disregard if not in same channel or in process of being sent
-                if (e.channelId !== this.getCurrentChannel()?.id) {
-                    return;
+                if (e.channelId === this.getCurrentChannel()?.id) {
+                    // Check if there are still chunks in the queue
+                    if (queuedUploads.has(e.channelId) && e.message.author.id == UserStore.getCurrentUser().id) {
+                        Logger.log(queuedUploads.get(e.channelId));
+                        MessageAttachmentManager.addFiles({
+                            files: queuedUploads.get(e.channelId).splice(0, BATCH_SIZE), 
+                            channelId: e.channelId
+                        });
+
+                        if (queuedUploads.get(e.channelId).length == 0) {
+                            queuedUploads.delete(e.channelId);
+                        }
+                    }
+
+                    this.lastMessageCreatedId = e.message.id;
+                    this.findAvailableDownloads();
                 }
-                this.lastMessageCreatedId = e.message.id;
-                this.findAvailableDownloads();
             };
 
             Dispatcher.subscribe("MESSAGE_CREATE", this.messageCreate);
@@ -392,16 +418,17 @@ module.exports = (Plugin, Library) => {
                 });
             });
 
-            ContextMenu.getDiscordMenu("ChannelListTextChannelContextMenu").then(menu => {
-                Patcher.after(menu, "default", (_, [arg], ret) => {
-                    if (arg.channel.id === this.getCurrentChannel()?.id) {
-                        ret.props.children.props.children.splice(1, 0, ContextMenu.buildMenuItem({type: "separator"}), ContextMenu.buildMenuItem({label: "Refresh Downloadables", action: () => { 
-                            this.findAvailableDownloads();
-                            BdApi.showToast("Downloadables refreshed", {type: "success"});
-                        }}));
-                    }
-                });
-            });
+            // TODO: Fix
+            // ContextMenu.getDiscordMenu("ChannelListTextChannelContextMenu").then(menu => {
+            //     Patcher.after(menu, "default", (_, [arg], ret) => {
+            //         if (arg.channel.id === this.getCurrentChannel()?.id) {
+            //             ret.props.children.props.children.splice(1, 0, ContextMenu.buildMenuItem({type: "separator"}), ContextMenu.buildMenuItem({label: "Refresh Downloadables", action: () => { 
+            //                 this.findAvailableDownloads();
+            //                 BdApi.showToast("Downloadables refreshed", {type: "success"});
+            //             }}));
+            //         }
+            //     });
+            // });
 
             // TODO: Patch DMUserContextMenu
 

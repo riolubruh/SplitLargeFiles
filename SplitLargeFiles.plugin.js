@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.7.5
+ * @version 1.7.6
  * @author ImTheSquid
  * @authorId 262055523896131584
  * @website https://github.com/ImTheSquid/SplitLargeFiles
@@ -30,7 +30,7 @@
     WScript.Quit();
 
 @else@*/
-const config = {"info":{"name":"SplitLargeFiles","authors":[{"name":"ImTheSquid","discord_id":"262055523896131584","github_username":"ImTheSquid","twitter_username":"ImTheSquid11"}],"version":"1.7.5","description":"Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.","github":"https://github.com/ImTheSquid/SplitLargeFiles","github_raw":"https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"},"changelog":[{"title":"Limitless Potential","items":["Removed 10 file upload limit."]}],"main":"bundled.js"};
+const config = {"info":{"name":"SplitLargeFiles","authors":[{"name":"ImTheSquid","discord_id":"262055523896131584","github_username":"ImTheSquid","twitter_username":"ImTheSquid11"}],"version":"1.7.6","description":"Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.","github":"https://github.com/ImTheSquid/SplitLargeFiles","github_raw":"https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"},"changelog":[{"title":"Bug Fixes","items":["Hotfix to prevent rate limiting. Messages must be sent in groups of 10 manually."]}],"main":"bundled.js"};
 class Dummy {
     constructor() {this._config = config;}
     start() {}
@@ -55,7 +55,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
   "use strict";
   const { Logger, Patcher, WebpackModules, DiscordModules, DOMTools, PluginUtilities, ContextMenu, Settings } = Library;
   const { SettingPanel, Slider } = Settings;
-  const { Dispatcher, React, SelectedChannelStore, SelectedGuildStore } = DiscordModules;
+  const { Dispatcher, React, SelectedChannelStore, SelectedGuildStore, UserStore } = DiscordModules;
   const fileCheckMod = WebpackModules.getByProps("anyFileTooLarge", "maxFileSize");
   const channelMod = BdApi.findModuleByProps("getChannel", "getMutablePrivateChannels", "hasChannel");
   const messagesMod = BdApi.findModuleByProps("hasCurrentUserSentMessage", "getMessage");
@@ -66,6 +66,9 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
   const Attachment = WebpackModules.find((m) => m.default?.displayName === "Attachment");
   const MessageAttachmentManager = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("addFiles"));
   const Constants = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("MAX_UPLOAD_COUNT"));
+  const BATCH_SIZE = 10;
+  const BATCH_DELAY_MS = 6e3;
+  const queuedUploads = /* @__PURE__ */ new Map();
   const activeDownloads = /* @__PURE__ */ new Map();
   const crypto = require("crypto");
   function downloadId(download) {
@@ -271,7 +274,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       Patcher.instead(fileCheckMod, "getUploadFileSizeSum", (_, __, ___) => {
         return 0;
       });
-      Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{ files, channelId, showLargeMessageDialog, draftType }], original) => {
+      Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{ files, channelId }], original) => {
         let oversizedFiles = [];
         let regularFiles = [];
         for (const fileContainer of files) {
@@ -289,19 +292,25 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           original({
             files: regularFiles,
             channelId,
-            showLargeMessageDialog,
-            draftType
+            showLargeMessageDialog: false,
+            draftType: 0
           });
         } else {
           this.splitLargeFiles(oversizedFiles).then((fileArrayArray) => {
             if (fileArrayArray.length === 0) {
               return;
             }
+            const fileArray = regularFiles.concat.apply([], fileArrayArray);
+            if (queuedUploads.has(channelId)) {
+              queuedUploads.get(channelId).push(fileArray);
+            } else {
+              queuedUploads.set(channelId, fileArray);
+            }
             original({
-              files: regularFiles.concat.apply([], fileArrayArray),
+              files: queuedUploads.get(channelId).splice(0, BATCH_SIZE),
               channelId,
-              showLargeMessageDialog,
-              draftType
+              showLargeMessageDialog: false,
+              draftType: 0
             });
           });
         }
@@ -329,11 +338,20 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         }
       });
       this.messageCreate = (e) => {
-        if (e.channelId !== this.getCurrentChannel()?.id) {
-          return;
+        if (e.channelId === this.getCurrentChannel()?.id) {
+          if (queuedUploads.has(e.channelId) && e.message.author.id == UserStore.getCurrentUser().id) {
+            Logger.log(queuedUploads.get(e.channelId));
+            MessageAttachmentManager.addFiles({
+              files: queuedUploads.get(e.channelId).splice(0, BATCH_SIZE),
+              channelId: e.channelId
+            });
+            if (queuedUploads.get(e.channelId).length == 0) {
+              queuedUploads.delete(e.channelId);
+            }
+          }
+          this.lastMessageCreatedId = e.message.id;
+          this.findAvailableDownloads();
         }
-        this.lastMessageCreatedId = e.message.id;
-        this.findAvailableDownloads();
       };
       Dispatcher.subscribe("MESSAGE_CREATE", this.messageCreate);
       this.channelSelect = (_) => {
@@ -355,16 +373,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
             ret.props.children.splice(6, 0, ContextMenu.buildMenuItem({ label: "Delete Download Fragments", danger: true, action: () => {
               this.deleteDownload(incomplete);
               this.findAvailableDownloads();
-            } }));
-          }
-        });
-      });
-      ContextMenu.getDiscordMenu("ChannelListTextChannelContextMenu").then((menu) => {
-        Patcher.after(menu, "default", (_, [arg], ret) => {
-          if (arg.channel.id === this.getCurrentChannel()?.id) {
-            ret.props.children.props.children.splice(1, 0, ContextMenu.buildMenuItem({ type: "separator" }), ContextMenu.buildMenuItem({ label: "Refresh Downloadables", action: () => {
-              this.findAvailableDownloads();
-              BdApi.showToast("Downloadables refreshed", { type: "success" });
             } }));
           }
         });
