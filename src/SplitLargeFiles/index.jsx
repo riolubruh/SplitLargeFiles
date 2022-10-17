@@ -1,43 +1,49 @@
 module.exports = (Plugin, Library) => {
     "use strict";
 
-    const {Logger, Patcher, WebpackModules, DiscordModules, DOMTools, PluginUtilities, ContextMenu, Settings} = Library;
+    const {ContextMenu, Webpack} = BdApi;
+    const {byProps} = Webpack.Filters;
+
+    const {Logger, Patcher, DiscordModules, DOMTools, PluginUtilities, Settings} = Library;
     const {SettingPanel, Slider} = Settings;
-    const {Dispatcher, React, SelectedChannelStore, SelectedGuildStore, UserStore} = DiscordModules;
+    const {Dispatcher, React, SelectedChannelStore, SelectedGuildStore, UserStore, MessageStore, Permissions, ChannelStore, MessageActions} = DiscordModules;
 
     // Set globals
-    const fileCheckMod = WebpackModules.getByProps("anyFileTooLarge", "maxFileSize");
+    // const fileCheckMod = Webpack.getModule(byPrototypeFields("compressAndCheckFileSize")).prototype;
+    const MessageAttachmentManager = Webpack.getModule(byProps("addFiles"));
+    const FileCheckMod = Webpack.getModule(m => Object.values(m).filter(v => v?.toString).map(v => v.toString()).some(v => v.includes("getCurrentUser();") && v.includes("getUserMaxFileSize")));
 
-    // Utility modules
-    const channelMod = BdApi.findModuleByProps("getChannel", "getMutablePrivateChannels", "hasChannel");
-    const messagesMod = BdApi.findModuleByProps("hasCurrentUserSentMessage", "getMessage");
-    const userMod = BdApi.findModuleByProps("getCurrentUser");
-    const permissionsMod = BdApi.findModuleByProps("computePermissions");
-    const deleteMod = BdApi.findModuleByProps("deleteMessage", "dismissAutomatedMessage");
-    const MessageAccessories = WebpackModules.find(mod => mod.MessageAccessories.displayName === "MessageAccessories");
-    const Attachment = WebpackModules.find(m => m.default?.displayName === "Attachment");
-    const MessageAttachmentManager = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("addFiles"));
-    const Constants = BdApi.Webpack.getModule(BdApi.Webpack.Filters.byProps("MAX_UPLOAD_COUNT"));
+    const MessageAccessories = Object.values(Webpack.getModule(m => Object.values(m).some(k => k?.prototype && Object.keys(k.prototype).includes("renderAttachments")))).find(v => v?.prototype && Object.keys(v.prototype).includes("renderAttachments"));
+    const Attachment = BdApi.Webpack.getModule(m => Object.values(m).filter(v => v?.toString).map(v => v.toString()).some(s => s.includes("renderAdjacentContent")));
 
     const BATCH_SIZE = 10;
-    const BATCH_DELAY_MS = 6_000;
 
     // Stores a map of channel IDs to queued chunks
     const queuedUploads = new Map();
 
     const activeDownloads = new Map();
 
-    const crypto = require('crypto');
-    function downloadId(download) {
+    async function downloadId(download) {
         if (!download) return null;
-        return crypto.createHash('sha256').update(download.urls.join("")).digest('base64');
+        const encoder = new TextEncoder();
+        const digested = await crypto.subtle.digest("SHA-256", encoder.encode(download.urls.join("")));
+        return Buffer.from(digested).toString("base64");
     }
 
-    function addFileProgress(download, progress) {
-        if (activeDownloads.has(downloadId(download))) {
-            activeDownloads.set(downloadId(download), activeDownloads.get(downloadId(download)) + progress);
+    function getFunctionNameFromString(obj, search) {
+        for (const [k, v] of Object.entries(obj)) {
+            if (search.every(str => v?.toString().match(str))) {
+                return k;
+            }
+        }
+        return null;
+    }
+
+    async function addFileProgress(download, progress) {
+        if (activeDownloads.has(await downloadId(download))) {
+            activeDownloads.set(await downloadId(download), activeDownloads.get(await downloadId(download)) + progress);
         } else {
-            activeDownloads.set(downloadId(download), progress);
+            activeDownloads.set(await downloadId(download), progress);
         }
 
         Dispatcher.dispatch({
@@ -63,12 +69,13 @@ module.exports = (Plugin, Library) => {
 
     function downloadFiles(download) {
         const https = require("https");
-        const os = require("os");
         const fs = require("fs");
         const path = require("path");
-        const crypto = require("crypto");
-        const id = crypto.randomBytes(16).toString("hex");
-        const tempFolder = fs.mkdtempSync(path.join(os.tmpdir(), `dlfc-download-${id}`));
+        const vals = new Uint8Array(16);
+        crypto.getRandomValues(vals);
+        const id = Buffer.from(vals).toString("hex");
+        const tempFolder = path.join(process.env.TMPDIR, `dlfc-download-${id}`);
+        fs.mkdirSync(tempFolder);
 
         BdApi.showToast("Downloading files...", {type: "info"});
 
@@ -79,12 +86,13 @@ module.exports = (Plugin, Library) => {
             const file = fs.createWriteStream(dest);
             const downloadPromise = new Promise((resolve, reject) => {
                 https.get(url, response => {
-                    response.pipe(file);
-                    file.on("finish", () => {
+                    // response.pipe(file);
+                    response.on("end", () => {
                         file.close();
                         resolve(chunkName);
                     })
                     response.on('data', data => {
+                        file.write(Buffer.from(data));
                         addFileProgress(download, data.length);
                     })
                 }).on("error", err => {
@@ -92,7 +100,7 @@ module.exports = (Plugin, Library) => {
                     reject(err);
                 });
             });
-            
+
             promises.push(downloadPromise);
         }
 
@@ -100,7 +108,7 @@ module.exports = (Plugin, Library) => {
             // Load files into array
             let fileBuffers = [];
             for (const name of names) {
-                fileBuffers.push(fs.readFileSync(path.join(tempFolder, name)));
+                fileBuffers.push(fs.readFileSync(path.join(tempFolder, name), null));
             }
 
             // Sort buffers
@@ -133,7 +141,7 @@ module.exports = (Plugin, Library) => {
 
                 DiscordNative.fileManager.saveWithDialog(fs.readFileSync(path.join(tempFolder, `${download.filename}`)), download.filename);
 
-                activeDownloads.delete(downloadId(download));
+                downloadId(download).then(id => activeDownloads.delete(id));
 
                 Dispatcher.dispatch({
                     type: 'SLF_UPDATE_PROGRESS'
@@ -153,7 +161,7 @@ module.exports = (Plugin, Library) => {
     function FileIcon() {
         return React.createElement("img", {
             className: "dlfcIcon",
-            alt: "Attachment file type: SplitLargeFiles Chunk File", 
+            alt: "Attachment file type: SplitLargeFiles Chunk File",
             title: "SplitLargeFiles Chunk File",
             src: "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4xLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+Cjxzdmcgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgdmlld0JveD0iMCAwIDcyIDk2IiB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHhtbDpzcGFjZT0icHJlc2VydmUiIHhtbG5zOnNlcmlmPSJodHRwOi8vd3d3LnNlcmlmLmNvbS8iIHN0eWxlPSJmaWxsLXJ1bGU6ZXZlbm9kZDtjbGlwLXJ1bGU6ZXZlbm9kZDtzdHJva2UtbGluZWpvaW46cm91bmQ7c3Ryb2tlLW1pdGVybGltaXQ6MjsiPgogICAgPHBhdGggZD0iTTcyLDI5LjNMNzIsODkuNkM3Miw5MS44NCA3Miw5Mi45NiA3MS41Niw5My44MkM3MS4xOCw5NC41NiA3MC41Niw5NS4xOCA2OS44Miw5NS41NkM2OC45Niw5NiA2Ny44NCw5NiA2NS42LDk2TDYuNCw5NkM0LjE2LDk2IDMuMDQsOTYgMi4xOCw5NS41NkMxLjQ0LDk1LjE4IDAuODIsOTQuNTYgMC40NCw5My44MkMwLDkyLjk2IDAsOTEuODQgMCw4OS42TDAsNi40QzAsNC4xNiAwLDMuMDQgMC40NCwyLjE4QzAuODIsMS40NCAxLjQ0LDAuODIgMi4xOCwwLjQ0QzMuMDQsLTAgNC4xNiwtMCA2LjQsLTBMNDIuNywtMEM0NC42NiwtMCA0NS42NCwtMCA0Ni41NiwwLjIyQzQ3LjA2LDAuMzQgNDcuNTQsMC41IDQ4LDAuNzJMNDgsMTcuNkM0OCwxOS44NCA0OCwyMC45NiA0OC40NCwyMS44MkM0OC44MiwyMi41NiA0OS40NCwyMy4xOCA1MC4xOCwyMy41NkM1MS4wNCwyNCA1Mi4xNiwyNCA1NC40LDI0TDcxLjI4LDI0QzcxLjUsMjQuNDYgNzEuNjYsMjQuOTQgNzEuNzgsMjUuNDRDNzIsMjYuMzYgNzIsMjcuMzQgNzIsMjkuM1oiIHN0eWxlPSJmaWxsOnJnYigyMTEsMjE0LDI1Myk7ZmlsbC1ydWxlOm5vbnplcm87Ii8+CiAgICA8cGF0aCBkPSJNNjguMjYsMjAuMjZDNjkuNjQsMjEuNjQgNzAuMzIsMjIuMzIgNzAuODIsMjMuMTRDNzEsMjMuNDIgNzEuMTQsMjMuNyA3MS4yOCwyNEw1NC40LDI0QzUyLjE2LDI0IDUxLjA0LDI0IDUwLjE4LDIzLjU2QzQ5LjQ0LDIzLjE4IDQ4LjgyLDIyLjU2IDQ4LjQ0LDIxLjgyQzQ4LDIwLjk2IDQ4LDE5Ljg0IDQ4LDE3LjZMNDgsMC43MkM0OC4zLDAuODYgNDguNTgsMSA0OC44NiwxLjE4QzQ5LjY4LDEuNjggNTAuMzYsMi4zNiA1MS43NCwzLjc0TDY4LjI2LDIwLjI2WiIgc3R5bGU9ImZpbGw6cmdiKDE0NywxNTUsMjQ5KTtmaWxsLXJ1bGU6bm9uemVybzsiLz4KICAgIDxnIHRyYW5zZm9ybT0ibWF0cml4KDEsMCwwLDEsNC41LDcpIj4KICAgICAgICA8cmVjdCB4PSIxMSIgeT0iNDEiIHdpZHRoPSI0MSIgaGVpZ2h0PSIyOCIgc3R5bGU9ImZpbGw6cmdiKDE0NywxNTUsMjQ5KTsiLz4KICAgIDwvZz4KICAgIDxnIHRyYW5zZm9ybT0ibWF0cml4KDEsMCwwLDAuNSwtMiwyMy41KSI+CiAgICAgICAgPHJlY3QgeD0iMjEiIHk9IjM5IiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHN0eWxlPSJmaWxsOnJnYigxNDcsMTU1LDI0OSk7Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09Im1hdHJpeCgxLDAsMCwwLjUsMjIsMjMuNSkiPgogICAgICAgIDxyZWN0IHg9IjIxIiB5PSIzOSIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBzdHlsZT0iZmlsbDpyZ2IoMTQ3LDE1NSwyNDkpOyIvPgogICAgPC9nPgo8L3N2Zz4K"
         });
@@ -198,16 +206,18 @@ module.exports = (Plugin, Library) => {
         }
 
         onDownloadProgress() {
-            if (this.state.downloadData && activeDownloads.has(downloadId(this.state.downloadData))) {
-                this.setState({downloadProgress: activeDownloads.get(downloadId(this.state.downloadData)) / this.state.downloadData.totalSize});
-            } else {
-                this.setState({downloadProgress: 0});
-            }
+            downloadId(this.state.downloadData).then(id => {
+                if (this.state.downloadData && activeDownloads.has(id)) {
+                    this.setState({downloadProgress: activeDownloads.get(id) / this.state.downloadData.totalSize});
+                } else {
+                    this.setState({downloadProgress: 0});
+                }
+            });
         }
 
         render() {
             if (this.state.downloadData) {
-                return React.createElement(Attachment.default, {
+                return React.createElement(Attachment[getFunctionNameFromString(Attachment, ["renderAdjacentContent"])], {
                     filename: this.state.downloadData.filename + (this.state.downloadProgress > 0 ? ` - Downloading ${Math.round(this.state.downloadProgress * 100)}%` : ""),
                     url: null,
                     dlfc: true,
@@ -237,8 +247,8 @@ module.exports = (Plugin, Library) => {
         onStart() {
             BdApi.injectCSS("SplitLargeFiles", `
                 .dlfcIcon {
-                    width: 30px; 
-                    height: 40px; 
+                    width: 30px;
+                    height: 40px;
                     margin-right: 8px;
                 }
 
@@ -264,29 +274,13 @@ module.exports = (Plugin, Library) => {
              * UPLOAD MODULE
              */
 
-            Constants.MAX_UPLOAD_COUNT = 255;
-
-            // Make all file too large checks succeed
-            Patcher.instead(fileCheckMod, "anyFileTooLarge", (_, __, ___) => {
-                return false;
-            });
-
-            Patcher.instead(fileCheckMod, "uploadSumTooLarge", (_, __, ___) => {
-                return false;
-            });
-
-            Patcher.instead(fileCheckMod, "getUploadFileSizeSum", (_, __, ___) => {
-                return 0;
-            });
-
             Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{files, channelId}], original) => {
-                let oversizedFiles = [];
-                let regularFiles = [];
+                let oversizedFiles = [], regularFiles = [];
                 for (const fileContainer of files) {
                     // Calculate chunks required
                     const [numChunks, numChunksWithHeaders] = this.calcNumChunks(fileContainer.file);
                     // Don't do anything if no changes needed
-                    if (numChunks == 1) {
+                    if (numChunks === 1) {
                         // File is regular, add to regular list
                         regularFiles.push(fileContainer);
                         continue;
@@ -319,7 +313,7 @@ module.exports = (Plugin, Library) => {
                         } else {
                             queuedUploads.set(channelId, fileArray);
                         }
-    
+
                         original({
                             files: queuedUploads.get(channelId).splice(0, BATCH_SIZE),
                             channelId: channelId,
@@ -331,16 +325,21 @@ module.exports = (Plugin, Library) => {
             });
 
             // Inject flag argument so that this plugin can still get real max size for chunking but anything else gets a really big number
-            Patcher.instead(fileCheckMod, "maxFileSize", (_, args, original) => {
-                // Must be unwrapped this way otherwise errors occur with undefined unwrapping
-                const [arg, use_original] = args;
-                if (use_original) {
-                    return original(arg);
-                }
-                return Number.MAX_VALUE;
-            });
+//            Patcher.instead(FileCheckMod, getFunctionNameFromString(FileCheckMod, ["getUserMaxFileSize", "getCurrentUser();"]), (_, args, original) => {
+//                // Must be unwrapped this way otherwise errors occur with undefined unwrapping
+//                Logger.log("using patched function")
+//                const [arg, use_original] = args;
+//                if (use_original) {
+//                    Logger.log("using original function")
+//                    return original(arg);
+//                }
+//                return Integer.MAX_SAFE_NUMBER;
+//            });
 
-            Patcher.after(MessageAccessories.MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
+            // Make sure all files pass size check
+            Patcher.instead(FileCheckMod, getFunctionNameFromString(FileCheckMod, [/Array\.from\(.\)\.some\(\(function\(.\)/]), (_, __, ___) => false);
+
+            Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
                 if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) { return; }
 
                 const component = ret[0].props.children;
@@ -352,11 +351,10 @@ module.exports = (Plugin, Library) => {
             });
 
             // Adds onClick to download arrow button that for some reason doesn't have it already
-            Patcher.after(Attachment, "default", (_, args, ret) => {
+            Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
                 ret.props.children[0].props.children[2].props.onClick = args[0].onClick;
                 if (args[0].dlfc) {
                     ret.props.children[0].props.children[0] = <FileIcon/>;
-                    // TODO: ret.props.children.splice(2, 0, <p>COPY</p>);
                 }
             });
 
@@ -368,20 +366,18 @@ module.exports = (Plugin, Library) => {
                 // Disregard if not in same channel or in process of being sent
                 if (e.channelId === this.getCurrentChannel()?.id) {
                     // Check if there are still chunks in the queue
-                    if (queuedUploads.has(e.channelId) && e.message.author.id == UserStore.getCurrentUser().id) {
-                        Logger.log(queuedUploads.get(e.channelId));
+                    if (queuedUploads.has(e.channelId) && e.message.author.id === UserStore.getCurrentUser().id) {
                         MessageAttachmentManager.addFiles({
-                            files: queuedUploads.get(e.channelId).splice(0, BATCH_SIZE), 
+                            files: queuedUploads.get(e.channelId).splice(0, BATCH_SIZE),
                             channelId: e.channelId
                         });
 
-                        if (queuedUploads.get(e.channelId).length == 0) {
+                        if (queuedUploads.get(e.channelId).length === 0) {
                             queuedUploads.delete(e.channelId);
                         }
                     }
 
-                    this.lastMessageCreatedId = e.message.id;
-                    this.findAvailableDownloads();
+                    setTimeout(() => this.findAvailableDownloads(), 500);
                 }
             };
 
@@ -402,35 +398,56 @@ module.exports = (Plugin, Library) => {
             Dispatcher.subscribe("LOAD_MESSAGES_SUCCESS", this.loadMessagesSuccess);
 
             // Manual refresh button in both channel and message menus
-            ContextMenu.getDiscordMenu("MessageContextMenu").then(menu => {
-                Patcher.after(menu, "default", (_, [arg], ret) => {
-                    ret.props.children.splice(4, 0, ContextMenu.buildMenuItem({type: "separator"}), ContextMenu.buildMenuItem({label: "Refresh Downloadables", action: () => { 
+            this.messageContextMenuUnpatch = ContextMenu.patch("message", (tree, props) => {
+                const incomplete = this.incompleteDownloads.find(download => download.messages.some(message => message.id === props.message.id));
+                if (!(incomplete || this.registeredDownloads.find(download => download.messages.some(msg => msg.id === props.message.id)))) {
+                    return;
+                }
+
+                tree.props.children[2].props.children.push(
+                    ContextMenu.buildItem({type: "separator"}),
+                    ContextMenu.buildItem({label: "Refresh Downloadables", action: () => {
                         this.findAvailableDownloads();
                         BdApi.showToast("Downloadables refreshed", {type: "success"});
-                    }}));
-                    const incomplete = this.incompleteDownloads.find(download => download.messages.find(message => message.id === arg.message.id));
-                    if (incomplete && this.canDeleteDownload(incomplete)) {
-                        ret.props.children.splice(6, 0, ContextMenu.buildMenuItem({label: "Delete Download Fragments", danger: true, action: () => {
+                    }}),
+                    ContextMenu.buildItem({label: "Copy Download Links", action: () => {
+                        const urls = this.getFileURLsFromMessageId(props.message.id);
+                        if (!urls) {
+                            BdApi.showToast("Failed to Copy Links", {type: "error"});
+                        }
+                        DiscordNative.clipboard.copy(urls.join(" "));
+                    }})
+                );
+
+                if (incomplete && this.canDeleteDownload(incomplete)) {
+                    tree.props.children[2].props.children.push(
+                        ContextMenu.buildItem({label: "Delete Download Fragments", danger: true, action: () => {
                             this.deleteDownload(incomplete);
                             this.findAvailableDownloads();
-                        }}));
-                    }
-                });
+                        }})
+                    );
+                }
             });
 
-            // TODO: Fix
-            // ContextMenu.getDiscordMenu("ChannelListTextChannelContextMenu").then(menu => {
-            //     Patcher.after(menu, "default", (_, [arg], ret) => {
-            //         if (arg.channel.id === this.getCurrentChannel()?.id) {
-            //             ret.props.children.props.children.splice(1, 0, ContextMenu.buildMenuItem({type: "separator"}), ContextMenu.buildMenuItem({label: "Refresh Downloadables", action: () => { 
-            //                 this.findAvailableDownloads();
-            //                 BdApi.showToast("Downloadables refreshed", {type: "success"});
-            //             }}));
-            //         }
-            //     });
-            // });
+            this.channelContextMenuUnpatch = ContextMenu.patch("channel-context", (tree, _) => {
+                tree.props.children[2].props.children.push(
+                    ContextMenu.buildItem({type: "separator"}),
+                    ContextMenu.buildItem({label: "Refresh Downloadables", action: () => {
+                        this.findAvailableDownloads();
+                        BdApi.showToast("Downloadables refreshed", {type: "success"});
+                    }})
+                );
+            });
 
-            // TODO: Patch DMUserContextMenu
+            this.userContextMenuUnpatch = ContextMenu.patch("user-context", (tree, _) => {
+                tree.props.children[2].props.children.push(
+                    ContextMenu.buildItem({type: "separator"}),
+                    ContextMenu.buildItem({label: "Refresh Downloadables", action: () => {
+                        this.findAvailableDownloads();
+                        BdApi.showToast("Downloadables refreshed", {type: "success"});
+                    }})
+                );
+            })
 
             // Handle deletion of part of file to delete all other parts either by user or automod
             this.messageDelete = e => {
@@ -438,7 +455,7 @@ module.exports = (Plugin, Library) => {
                 if (e.channelId !== this.getCurrentChannel()?.id) {
                     return;
                 }
-                const download = this.registeredDownloads.find(element => element.messages.find(message => message.id == e.id));
+                const download = this.registeredDownloads.find(element => element.messages.find(message => message.id === e.id));
                 if (download && this.canDeleteDownload(download)) {
                     this.deleteDownload(download, e.id);
                 }
@@ -459,11 +476,17 @@ module.exports = (Plugin, Library) => {
             }, 10000);
         }
 
+        // Gets the required links to copy a downloadable
+        getFileURLsFromMessageId(messageId) {
+            const download = this.registeredDownloads.find(download => download.messages.some(msg => msg.id === messageId));
+            return download?.urls;
+        }
+
         // Splits and uploads a large file
         // Batch uploading should be disabled when multiple files need to be uploaded to prevent API spam
         splitLargeFiles(fileContainers) {
             BdApi.showToast("Generating file chunks...", {type: "info"});
-            
+
             let promises = [];
             for (const fileContainer of fileContainers) {
                 const file = fileContainer.file;
@@ -471,15 +494,15 @@ module.exports = (Plugin, Library) => {
                 promises.push(new Promise((res, rej) => {
                     file.arrayBuffer().then(buffer => {
                         const fileBytes = new Uint8Array(buffer);
-    
+
                         // Calculate chunks required
                         const [numChunks, numChunksWithHeaders] = this.calcNumChunks(file);
-    
+
                         // Write files with leading bit to determine order
                         // Upload new chunked files
                         const fileList = [];
                         for (let chunk = 0; chunk < numChunksWithHeaders; chunk++) {
-                            // Get an offset with size 
+                            // Get an offset with size
                             const baseOffset = chunk * (this.maxFileUploadSize() - 4);
                             // Write header: "DF" (discord file) then protocol version then chunk number then total chunk count
                             const headerBytes = new Uint8Array(4);
@@ -513,9 +536,9 @@ module.exports = (Plugin, Library) => {
         // Create the settings panel
         getSettingsPanel() {
             reloadSettings();
-            return new SettingPanel(() => { PluginUtilities.saveSettings("SplitLargeFiles", settings); }, 
-                new Slider("Chunk File Deletion Delay", "How long to wait (in seconds) before deleting each sequential message of a chunk file." + 
-                    " If you plan on deleting VERY large files you should set this value high to avoid API spam.", 
+            return new SettingPanel(() => { PluginUtilities.saveSettings("SplitLargeFiles", settings); },
+                new Slider("Chunk File Deletion Delay", "How long to wait (in seconds) before deleting each sequential message of a chunk file." +
+                    " If you plan on deleting VERY large files you should set this value high to avoid API spam.",
                     validActionDelays[0], validActionDelays[validActionDelays.length - 1], settings.deletionDelay, newVal => {
                         // Make sure value is in bounds
                         if (newVal > validActionDelays[validActionDelays.length - 1] || newVal < validActionDelays[0]) {
@@ -528,12 +551,8 @@ module.exports = (Plugin, Library) => {
 
         // Gets the maximum file upload size for the current server
         maxFileUploadSize() {
-            if (!fileCheckMod) {
-                return 0;
-            }
-
             // Built-in buffer, otherwise file upload fails
-            return fileCheckMod.maxFileSize(SelectedGuildStore.getGuildId(), true) - 1000;
+            return FileCheckMod[getFunctionNameFromString(FileCheckMod, ["getUserMaxFileSize", /getCurrentUser\(\);/])](SelectedGuildStore.getGuildId()) - 1000;
         }
 
         // Looks through current messages to see which ones have (supposedly) complete .dlfc files and make a list of them
@@ -542,7 +561,7 @@ module.exports = (Plugin, Library) => {
         findAvailableDownloads() {
             this.registeredDownloads = [];
             this.incompleteDownloads = [];
-            
+
             for (const message of this.getChannelMessages(this.getCurrentChannel()?.id) ?? []) {
                 // If object already searched with nothing then skip
                 if (message.noDLFC) {
@@ -685,7 +704,7 @@ module.exports = (Plugin, Library) => {
             BdApi.showToast(`Deleting chunks (1 chunk/${settings.deletionDelay} seconds)`, {type: "success"});
             let delayCount = 1;
             for (const message of this.getChannelMessages(this.getCurrentChannel().id)) {
-                const downloadMessage = download.messages.find(dMessage => dMessage.id == message.id);
+                const downloadMessage = download.messages.find(dMessage => dMessage.id === message.id);
                 if (downloadMessage) {
                     if (excludeMessage && message.id === excludeMessage.id) {
                         continue;
@@ -700,22 +719,18 @@ module.exports = (Plugin, Library) => {
         }
 
         canDeleteDownload(download) {
-            return download.owner === this.getCurrentUser().id || this.canManageMessages();
+            return download.owner === UserStore.getCurrentUser().id || this.canManageMessages();
         }
 
         getCurrentChannel() {
-            return channelMod.getChannel(SelectedChannelStore.getChannelId()) ?? null;
+            return ChannelStore.getChannel(SelectedChannelStore.getChannelId()) ?? null;
         }
 
         getChannelMessages(channelId) {
             if (!channelId) {
                 return null;
             }
-            return messagesMod.getMessages(channelId)._array;
-        }
-
-        getCurrentUser() {
-            return userMod.getCurrentUser();
+            return MessageStore.getMessages(channelId)._array;
         }
 
         canManageMessages() {
@@ -724,15 +739,18 @@ module.exports = (Plugin, Library) => {
                 return false;
             }
             // Convert permissions big int into bool using falsy coercion
-            return !!(permissionsMod.computePermissions(currentChannel) & 0x2000n);
+            return !!(Permissions.computePermissions(currentChannel) & 0x2000n);
         }
 
         deleteMessage(message) {
-            deleteMod.deleteMessage(message.channel_id, message.id, false);
+            MessageActions.deleteMessage(message.channel_id, message.id, false);
         }
 
         onStop() {
             Patcher.unpatchAll();
+            if (this.messageContextMenuUnpatch) this.messageContextMenuUnpatch();
+            if (this.channelContextMenuUnpatch) this.channelContextMenuUnpatch();
+            if (this.userContextMenuUnpatch) this.userContextMenuUnpatch();
             Dispatcher.unsubscribe("MESSAGE_CREATE", this.messageCreate);
             Dispatcher.unsubscribe("CHANNEL_SELECT", this.channelSelect);
             Dispatcher.unsubscribe("MESSAGE_DELETE", this.messageDelete);

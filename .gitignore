@@ -1,1 +1,2 @@
-bundled.js
+node_modules/
+src/SplitLargeFiles/bundled.js

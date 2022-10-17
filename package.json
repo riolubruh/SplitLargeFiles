@@ -1,0 +1,30 @@
+{
+  "name": "splitlargefiles",
+  "version": "1.8.0",
+  "description": "Splits Discord files",
+  "main": "index.jsx",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "esbuild src/SplitLargeFiles/index.jsx --bundle --outfile=src/SplitLargeFiles/bundled.js --platform=node && zpl build SplitLargeFiles",
+    "init": "zpl init SplitLargeFiles"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ImTheSquid/SplitLargeFiles.git"
+  },
+  "author": "Jack Hogan",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ImTheSquid/SplitLargeFiles/issues"
+  },
+  "homepage": "https://github.com/ImTheSquid/SplitLargeFiles#readme",
+  "dependencies": {
+    "zerespluginlibrary": "^2.0.6"
+  },
+  "zplConfig": {
+    "base": "./src",
+    "out": "./release",
+    "copyToBD": true,
+    "addInstallScript": true
+  }
+}
