@@ -98,8 +98,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
   const MessageAccessories = Object.values(Webpack.getModule((m) => Object.values(m).some((k) => k?.prototype && Object.keys(k.prototype).includes("renderAttachments")))).find((v) => v?.prototype && Object.keys(v.prototype).includes("renderAttachments"));
   const Attachment = BdApi.Webpack.getModule((m) => Object.values(m).filter((v) => v?.toString).map((v) => v.toString()).some((s) => s.includes("renderAdjacentContent")));
   const BATCH_SIZE = 10;
-  const queuedUploads = new Map();
-  const activeDownloads = new Map();
+  const queuedUploads = /* @__PURE__ */ new Map();
+  const activeDownloads = /* @__PURE__ */ new Map();
   async function downloadId(download) {
     if (!download)
       return null;
@@ -179,7 +179,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       fileBuffers = fileBuffers.filter((buffer) => buffer.length >= 5 && buffer[0] === 223 && buffer[1] === 0);
       fileBuffers.sort((left, right) => left[2] - right[2]);
       let numChunks = 0;
-      let chunkSet = new Set();
+      let chunkSet = /* @__PURE__ */ new Set();
       let outputFile = fs.createWriteStream(path.join(tempFolder, `${download.filename}`));
       for (const buffer of fileBuffers) {
         if (buffer[2] >= buffer[3] || numChunks !== 0 && buffer[3] > numChunks) {
@@ -513,7 +513,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
               owner: message.author.id,
               urls: [attachment.url],
               messages: [{ id: message.id, date: message.timestamp, attachmentID: attachment.id }],
-              foundParts: new Set([parseInt(attachment.filename)]),
+              foundParts: /* @__PURE__ */ new Set([parseInt(attachment.filename)]),
               totalSize: attachment.size
             });
           }
@@ -523,7 +523,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         }
       }
       this.registeredDownloads = this.registeredDownloads.filter((value, _, __) => {
-        const chunkSet = new Set();
+        const chunkSet = /* @__PURE__ */ new Set();
         let highestChunk = 0;
         for (const url of value.urls) {
           const filename = url.slice(url.lastIndexOf("/") + 1);
@@ -577,7 +577,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     }
     setAttachmentVisibility(id, index, visible) {
       const parent = DOMTools.query(`#message-accessories-${id}`);
-      const element = parent.children[index];
+      const element = parent?.children[index];
       if (element) {
         if (visible) {
           parent.removeAttribute("style");

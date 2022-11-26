@@ -678,7 +678,7 @@ module.exports = (Plugin, Library) => {
         // If index = -1, set all to specified
         setAttachmentVisibility(id, index, visible) {
             const parent = DOMTools.query(`#message-accessories-${id}`);
-            const element = parent.children[index];
+            const element = parent?.children[index];
             if (element) {
                 if (visible) {
                     parent.removeAttribute("style");
