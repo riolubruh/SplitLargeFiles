@@ -1,11 +1,11 @@
 /**
  * @name SplitLargeFiles
- * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
+ * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later. YABDP4Nitro compatibility version.
  * @version 1.8.0
  * @author ImTheSquid
  * @authorId 262055523896131584
- * @website https://github.com/ImTheSquid/SplitLargeFiles
- * @source https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js
+ * @website https://github.com/riolubruh/SplitLargeFiles
+ * @source https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/master/SplitLargeFiles.plugin.js
  */
 /*@cc_on
 @if (@_jscript)
@@ -146,7 +146,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     const vals = new Uint8Array(16);
     crypto.getRandomValues(vals);
     const id = Buffer.from(vals).toString("hex");
-    const tempFolder = path.join(process.env.TMPDIR, `dlfc-download-${id}`);
+    const tempFolder = path.join(process.env.TMP, `dlfc-download-${id}`);
     fs.mkdirSync(tempFolder);
     BdApi.showToast("Downloading files...", { type: "info" });
     let promises = [];
@@ -285,6 +285,25 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
   const validActionDelays = [6, 7, 8, 9, 10, 11, 12];
   class SplitLargeFiles extends Plugin {
     onStart() {
+		const filesizemodule = BdApi.Webpack.getModule((m) => Object.values(m).filter((v) => v?.toString).map((v) => v.toString()).some((v) => v.includes("getCurrentUser();") && v.includes("getUserMaxFileSize")));
+		function getFunctionNameFromString(obj, search) {
+			for (const [k, v] of Object.entries(obj)) {
+				if (search.every((str) => v?.toString().match(str))) {
+				return k;
+				}
+			}
+		return null;
+		}
+		let maxFileSizeFunctionName = getFunctionNameFromString(filesizemodule, ["getUserMaxFileSize", /getCurrentUser\(\);/]);
+		let originalFileSize = filesizemodule[getFunctionNameFromString(filesizemodule, ["getUserMaxFileSize", /getCurrentUser\(\);/])](DiscordModules.SelectedGuildStore.getGuildId()) - 1e3;
+		console.log(originalFileSize);
+		BdApi.Patcher.before("YABDP4Nitro", filesizemodule, maxFileSizeFunctionName, () => {
+			BdApi.findModuleByProps("getCurrentUser").getCurrentUser().premiumType = undefined;
+		});
+		BdApi.Patcher.after("YABDP4Nitro", filesizemodule, maxFileSizeFunctionName, () => {
+			BdApi.findModuleByProps("getCurrentUser").getCurrentUser().premiumType = 1;
+		});
+					
       BdApi.injectCSS("SplitLargeFiles", `
                 .dlfcIcon {
                     width: 30px;
