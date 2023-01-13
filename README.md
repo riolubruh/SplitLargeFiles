@@ -32,7 +32,11 @@ Downloading the file results in the reassembled original file being put in the d
 
   - Solution: Try uploading a different file of similar size. If the new file works, there is something wrong with the original file. You can try moving it somewhere else and see if it works. If the new file doesn't work, contact me and I will take a bug report.
 
-## My Other Plugins
+## Squid's Other Plugins
 - [PiPEmbeds](https://github.com/ImTheSquid/PiPEmbeds)
 - [StickerSnatcher](https://github.com/ImTheSquid/StickerSnatcher)
 - [SettingsSync](https://github.com/ImTheSquid/SettingsSync)
+
+## Changes made in this fork
+
+This fork simply forces the split size to always be 8MB regardless of the circumstances.
