@@ -5,7 +5,7 @@
  * @author ImTheSquid
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
- * @source https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/master/SplitLargeFiles.plugin.js
+ * @source https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/release/SplitLargeFiles.plugin.js
  */
 /*@cc_on
 @if (@_jscript)
@@ -44,14 +44,13 @@ const config = {
         version: "1.8.2",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
-        github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/master/SplitLargeFiles.plugin.js"
+        github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/release/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "New Discord New SplitLargeFiles",
+            title: "asdf",
             items: [
-                "Force 8MB file split size",
-				"Trashed old shitty code"
+                ""
             ]
         }
     ],
