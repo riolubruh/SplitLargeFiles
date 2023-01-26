@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
- * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later. YABDP4Nitro compatibility version.
- * @version 1.8.1
+ * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
+ * @version 1.8.2
  * @author ImTheSquid
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -41,16 +41,17 @@ const config = {
                 twitter_username: "ImTheSquid11"
             }
         ],
-        version: "1.8.1",
+        version: "1.8.2",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
-        github: "https://github.com/ImTheSquid/SplitLargeFiles",
-        github_raw: "https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"
+        github: "https://github.com/riolubruh/SplitLargeFiles",
+        github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/master/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "SplitLargeFiles YABDP4Nitro Compatibility",
+            title: "New Discord New SplitLargeFiles",
             items: [
-                "Updated to force the max file size to always be 8MB."
+                "Force 8MB file split size",
+				"Trashed old shitty code"
             ]
         }
     ],
@@ -283,21 +284,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
   const validActionDelays = [6, 7, 8, 9, 10, 11, 12];
   class SplitLargeFiles extends Plugin {
     onStart() {
-		const filesizemodule = BdApi.Webpack.getModule((m) => Object.values(m).filter((v) => v?.toString).map((v) => v.toString()).some((v) => v.includes("getCurrentUser();") && v.includes("getUserMaxFileSize")));
-		function getFunctionNameFromString(obj, search) {
-			for (const [k, v] of Object.entries(obj)) {
-				if (search.every((str) => v?.toString().match(str))) {
-				return k;
-				}
-			}
-		return null;
-		}
-		let maxFileSizeFunctionName = getFunctionNameFromString(filesizemodule, ["getUserMaxFileSize", /getCurrentUser\(\);/]);
-		let originalFileSize = filesizemodule[getFunctionNameFromString(filesizemodule, ["getUserMaxFileSize", /getCurrentUser\(\);/])](DiscordModules.SelectedGuildStore.getGuildId()) - 1e3;
-		BdApi.Patcher.instead("SplitLargeFiles", filesizemodule, maxFileSizeFunctionName, () => {
-			return 8387608;
-		});
-					
       BdApi.injectCSS("SplitLargeFiles", `
                 .dlfcIcon {
                     width: 30px;
@@ -498,8 +484,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       }, { markers: validActionDelays, stickToMarkers: true })).getElement();
     }
     maxFileUploadSize() {
-      return FileCheckMod[getFunctionNameFromString(FileCheckMod, ["getUserMaxFileSize", /getCurrentUser\(\);/])](SelectedGuildStore.getGuildId()) - 1e3;
-    }
+      return 8387608
+	}
     findAvailableDownloads() {
       this.registeredDownloads = [];
       this.incompleteDownloads = [];
@@ -646,7 +632,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       MessageActions.deleteMessage(message.channel_id, message.id, false);
     }
     onStop() {
-	  BdApi.Patcher.unpatchAll("SplitLargeFiles");
       Patcher.unpatchAll();
       if (this.messageContextMenuUnpatch)
         this.messageContextMenuUnpatch();
