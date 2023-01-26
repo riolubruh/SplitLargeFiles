@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later. YABDP4Nitro compatibility version.
- * @version 1.8.0
+ * @version 1.8.1
  * @author ImTheSquid
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -41,18 +41,16 @@ const config = {
                 twitter_username: "ImTheSquid11"
             }
         ],
-        version: "1.8.0",
+        version: "1.8.1",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/ImTheSquid/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "New Discord New SplitLargeFiles",
+            title: "SplitLargeFiles YABDP4Nitro Compatibility",
             items: [
-                "Updated to become compatible with new changes to Discord and BD",
-                "Added ability to copy all download links at once",
-                "Added refresh controls to user and channel context menus"
+                "Updated to force the max file size to always be 8MB."
             ]
         }
     ],
@@ -296,12 +294,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
 		}
 		let maxFileSizeFunctionName = getFunctionNameFromString(filesizemodule, ["getUserMaxFileSize", /getCurrentUser\(\);/]);
 		let originalFileSize = filesizemodule[getFunctionNameFromString(filesizemodule, ["getUserMaxFileSize", /getCurrentUser\(\);/])](DiscordModules.SelectedGuildStore.getGuildId()) - 1e3;
-		console.log(originalFileSize);
-		BdApi.Patcher.before("YABDP4Nitro", filesizemodule, maxFileSizeFunctionName, () => {
-			BdApi.findModuleByProps("getCurrentUser").getCurrentUser().premiumType = undefined;
-		});
-		BdApi.Patcher.after("YABDP4Nitro", filesizemodule, maxFileSizeFunctionName, () => {
-			BdApi.findModuleByProps("getCurrentUser").getCurrentUser().premiumType = 1;
+		BdApi.Patcher.instead("SplitLargeFiles", filesizemodule, maxFileSizeFunctionName, () => {
+			return 8387608;
 		});
 					
       BdApi.injectCSS("SplitLargeFiles", `
@@ -652,6 +646,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       MessageActions.deleteMessage(message.channel_id, message.id, false);
     }
     onStop() {
+	  BdApi.Patcher.unpatchAll("SplitLargeFiles");
       Patcher.unpatchAll();
       if (this.messageContextMenuUnpatch)
         this.messageContextMenuUnpatch();
