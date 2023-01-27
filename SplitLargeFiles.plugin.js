@@ -50,7 +50,7 @@ const config = {
         version: "1.8.4",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
-        github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/release/SplitLargeFiles.plugin.js"
+        github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
