@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.8.3
+ * @version 1.8.4
  * @author ImTheSquid
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,16 +47,17 @@ const config = {
                 twitter_username: "riolubruh"
             }
         ],
-        version: "1.8.3",
+        version: "1.8.4",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/release/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "Downloading fixed",
+            title: "Open file directory",
             items: [
-                "Now downloads the file(s) to your Desktop (or Downloads if there already is a file with the same name there) based on process.env.USERPROFILE (should be the current user directory)"
+				"Reverted downloading to Desktop, now we still download to temp",
+                "Opens the file directory after downloading"
             ]
         }
     ],
@@ -203,34 +204,27 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       outputFile.close(() => {
         BdApi.showToast("File reassembled successfully", { type: "success" });
 		fs.readdirSync(tempFolder).forEach(file => {
-			//Print file name
 			if(file.toString().includes(".dlfc")){
 				fs.unlinkSync((tempFolder + "\\" + file.toString()));
 			}
 		});
-		var movelocation = (process.env.USERPROFILE + '\\Desktop\\' + download.filename);
-		if (fs.existsSync(movelocation)) {
-		  movelocation = (process.env.USERPROFILE + '\\Downloads\\' + download.filename);
-		  if(fs.existsSync(movelocation)){
-			  movelocation = (process.env.USERPROFILE + '\\Downloads\\' + Math.floor(Math.random() * 9999) + download.filename)
-		  }
-		}
 		
-		try{ //Move the downloaded file to movelocation
-			fs.rename((path.join(tempFolder, `${download.filename}`)), movelocation);
-		}catch(err){}
-		BdApi.showToast(("File downloaded to " + movelocation), { type: "success", timeout: 5000 });
+		//Move the downloaded file to movelocation
+		//fs.rename((path.join(tempFolder, `${download.filename}`)), movelocation);
+		let electron = require("electron");
+		electron.shell.showItemInFolder(path.join(tempFolder, `${download.filename}`));
+		BdApi.showToast(("File downloaded to " + (path.join(tempFolder, `${download.filename}`))), { type: "success", timeout: 5000 });
 		//DiscordNative.fileManager.saveWithDialog(fs.readFileSync(path.join(tempFolder, `${download.filename}`)), download.filename);
         downloadId(download).then((id2) => activeDownloads.delete(id2));
         Dispatcher.dispatch({
           type: "SLF_UPDATE_PROGRESS"
         });
-        fs.rmdirSync(tempFolder, { recursive: true });
+        //fs.rmdirSync(tempFolder, { recursive: true });
       });
     }).catch((err) => {
       Logger.error(err);
       BdApi.showToast("Failed to download file, please try again later.", { type: "error" });
-      fs.rmdirSync(tempFolder, { recursive: true });
+      //fs.rmdirSync(tempFolder, { recursive: true });
     });
   }
   function FileIcon() {
