@@ -1,5 +1,5 @@
 # Split Large Files
-Split large files is a BetterDiscord plugin that makes sending large files easy by breaking up big files into smaller ones that get reassembled upon download. 
+Split Large Files is a BetterDiscord plugin that makes sending large files easy by breaking up big files into smaller ones that get reassembled upon download. 
 
 The Node engine that Discord runs on only supports a max file size of 2 GB, so don't expect to upload files above 1.5 GB. An error may not be displayed on failure if you try to upload files greater than 1 GB.
 
