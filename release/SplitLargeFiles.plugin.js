@@ -6,7 +6,7 @@
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
  * @source https://github.com/riolubruh/SplitLargeFiles
- * @updateUrl https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/release/SplitLargeFiles.plugin.js
+ * @updateUrl https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js
  */
 /*@cc_on
 @if (@_jscript)
