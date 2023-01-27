@@ -1,11 +1,12 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.8.2
+ * @version 1.8.3
  * @author ImTheSquid
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
- * @source https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/release/SplitLargeFiles.plugin.js
+ * @source https://github.com/riolubruh/SplitLargeFiles
+ * @updateUrl https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/release/SplitLargeFiles.plugin.js
  */
 /*@cc_on
 @if (@_jscript)
@@ -39,18 +40,23 @@ const config = {
                 discord_id: "262055523896131584",
                 github_username: "ImTheSquid",
                 twitter_username: "ImTheSquid11"
+            },{
+                name: "Riolubruh",
+                discord_id: "359063827091816448",
+                github_username: "riolubruh",
+                twitter_username: "riolubruh"
             }
         ],
-        version: "1.8.2",
+        version: "1.8.3",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/release/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "asdf",
+            title: "Downloading fixed",
             items: [
-                ""
+                "Now downloads the file(s) to your Desktop (or Downloads if there already is a file with the same name there) based on process.env.USERPROFILE (should be the current user directory)"
             ]
         }
     ],
@@ -196,7 +202,25 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       }
       outputFile.close(() => {
         BdApi.showToast("File reassembled successfully", { type: "success" });
-        DiscordNative.fileManager.saveWithDialog(fs.readFileSync(path.join(tempFolder, `${download.filename}`)), download.filename);
+		fs.readdirSync(tempFolder).forEach(file => {
+			//Print file name
+			if(file.toString().includes(".dlfc")){
+				fs.unlinkSync((tempFolder + "\\" + file.toString()));
+			}
+		});
+		var movelocation = (process.env.USERPROFILE + '\\Desktop\\' + download.filename);
+		if (fs.existsSync(movelocation)) {
+		  movelocation = (process.env.USERPROFILE + '\\Downloads\\' + download.filename);
+		  if(fs.existsSync(movelocation)){
+			  movelocation = (process.env.USERPROFILE + '\\Downloads\\' + Math.floor(Math.random() * 9999) + download.filename)
+		  }
+		}
+		
+		try{ //Move the downloaded file to movelocation
+			fs.rename((path.join(tempFolder, `${download.filename}`)), movelocation);
+		}catch(err){}
+		BdApi.showToast(("File downloaded to " + movelocation), { type: "success", timeout: 5000 });
+		//DiscordNative.fileManager.saveWithDialog(fs.readFileSync(path.join(tempFolder, `${download.filename}`)), download.filename);
         downloadId(download).then((id2) => activeDownloads.delete(id2));
         Dispatcher.dispatch({
           type: "SLF_UPDATE_PROGRESS"
