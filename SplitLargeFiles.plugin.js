@@ -1,8 +1,8 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.8.4
- * @author ImTheSquid
+ * @version 1.8.5
+ * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
  * @source https://github.com/riolubruh/SplitLargeFiles
@@ -47,7 +47,7 @@ const config = {
                 twitter_username: "riolubruh"
             }
         ],
-        version: "1.8.4",
+        version: "1.8.5",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
@@ -56,8 +56,9 @@ const config = {
         {
             title: "Open file directory",
             items: [
-				"Reverted downloading to Desktop, now we still download to temp",
-                "Opens the file directory after downloading"
+				"Fixed crashing issue",
+                "Added uploads of over 500MB (they are still unsupported though!)",
+				"Fixed an issue where uploads with more than 10 parts would not display correctly."
             ]
         }
     ],
@@ -148,6 +149,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     const https = require("https");
     const fs = require("fs");
     const path = require("path");
+	const electron = require("electron");
     const vals = new Uint8Array(16);
     crypto.getRandomValues(vals);
     const id = Buffer.from(vals).toString("hex");
@@ -211,11 +213,9 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
 		
 		//Move the downloaded file to movelocation
 		//fs.rename((path.join(tempFolder, `${download.filename}`)), movelocation);
-		let electron = require("electron");
 		electron.shell.showItemInFolder(path.join(tempFolder, `${download.filename}`));
 		BdApi.showToast(("File downloaded to " + (path.join(tempFolder, `${download.filename}`))), { type: "success", timeout: 5000 });
-		//DiscordNative.fileManager.saveWithDialog(fs.readFileSync(path.join(tempFolder, `${download.filename}`)), download.filename);
-        downloadId(download).then((id2) => activeDownloads.delete(id2));
+		downloadId(download).then((id2) => activeDownloads.delete(id2));
         Dispatcher.dispatch({
           type: "SLF_UPDATE_PROGRESS"
         });
@@ -319,6 +319,29 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
                     color: var(--interactive-hover);
                 }
             `);
+	  
+	  const uploadinator = ZLibrary.WebpackModules.getByIndex(56133);
+	  BdApi.Patcher.instead("SplitLargeFiles", uploadinator, "d", (_, e) => {
+		  try{
+			  //console.log(e);
+			  var E = Array.from(e[0]).map((function(e) {
+			  return {
+				file: e,
+				platform: 1
+            }
+	  }));
+		  ZLibrary.WebpackModules.getByProps("addFiles").addFiles({
+			  files: E,
+			  channelId: e[1].id,
+			  showLargeMessageDialog: false,
+			  draftType: e[2]
+		  })
+	  }catch(err){
+		  console.error(err);
+		  ZLibrary.Toasts.error("An error occurred.")
+	  }
+	  });
+	  
       reloadSettings();
       this.registeredDownloads = [];
       this.incompleteDownloads = [];
@@ -448,6 +471,11 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       Dispatcher.subscribe("MESSAGE_DELETE", this.messageDelete);
       BdApi.showToast("Waiting for BetterDiscord to load before refreshing downloadables...", { type: "info" });
       setTimeout(() => {
+		  BdApi.Patcher.before("SplitLargeFiles", ZLibrary.WebpackModules.getByIndex(145337), "default", (_,a) => {
+			//Fix crashing issue
+			//console.log(a);
+			a[0] = String(a[0]);
+	      });
         BdApi.showToast("Downloadables refreshed", { type: "success" });
         this.findAvailableDownloads();
       }, 1e4);
@@ -501,6 +529,11 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       }, { markers: validActionDelays, stickToMarkers: true })).getElement();
     }
     maxFileUploadSize() {
+	  /*
+	  8MB: 8387608
+	  50MB: 52428800
+	  100MB: 104333312
+	  500MB: 524288000 */
       return 8387608
 	}
     findAvailableDownloads() {
@@ -580,7 +613,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       return name.slice(name.indexOf("_") + 1, name.length - 5);
     }
     setMessageVisibility(id, visible) {
-      const element = DOMTools.query(`#chat-messages-${id}`);
+      const element = DOMTools.query('#chat-messages-' + BdApi.findModuleByProps("getLastChannelFollowingDestination").getChannelId() + '-' + id);
       if (element) {
         if (visible) {
           element.removeAttribute("hidden");
@@ -588,11 +621,11 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           element.setAttribute("hidden", "");
         }
       } else {
-        Logger.error(`Unable to find DOM object with selector #chat-messages-${id}`);
+        Logger.error('Unable to find DOM object with selector #chat-messages-' + BdApi.findModuleByProps("getLastChannelFollowingDestination").getChannelId() + '-' + id);
       }
     }
     setAttachmentVisibility(id, index, visible) {
-      const parent = DOMTools.query(`#message-accessories-${id}`);
+      const parent = DOMTools.query('#message-accessories-' + id);
       const element = parent?.children[index];
       if (element) {
         if (visible) {
@@ -646,7 +679,11 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       return !!(Permissions.computePermissions(currentChannel) & 0x2000n);
     }
     deleteMessage(message) {
-      MessageActions.deleteMessage(message.channel_id, message.id, false);
+		try{
+			MessageActions.deleteMessage(message.channel_id, message.id, false);
+		}catch(err){
+			console.error(err);
+		}
     }
     onStop() {
       Patcher.unpatchAll();
