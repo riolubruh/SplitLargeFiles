@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.8.5
+ * @version 1.8.6
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,18 +47,17 @@ const config = {
                 twitter_username: "riolubruh"
             }
         ],
-        version: "1.8.5",
+        version: "1.8.6",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "Open file directory",
+            title: "1.8.6",
             items: [
-				"Fixed crashing issue",
-                "Added uploads of over 500MB (they are still unsupported though!)",
-				"Fixed an issue where uploads with more than 10 parts would not display correctly."
+				"Fixed downloading after a Discord update that modified how downloads work.",
+				"Fixed a crashing issue."
             ]
         }
     ],
@@ -396,7 +395,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         }, component);
       });
       Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
-        ret.props.children[0].props.children[2].props.onClick = args[0].onClick;
+		//Below line commented out because it was causing downloads to happen twice
+        //ret.props.children[0].props.children[1].props.onClick = args[0].onClick;
         if (args[0].dlfc) {
           ret.props.children[0].props.children[0] = /* @__PURE__ */ React.createElement(FileIcon, null);
         }
@@ -469,13 +469,13 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         this.findAvailableDownloads();
       };
       Dispatcher.subscribe("MESSAGE_DELETE", this.messageDelete);
+	  BdApi.Patcher.before("SplitLargeFiles", ZLibrary.WebpackModules.getByIndex(145337), "default", (_,a) => {
+		//Fix crashing issue
+		//console.log(a);
+		a[0] = String(a[0]);
+	  });
       BdApi.showToast("Waiting for BetterDiscord to load before refreshing downloadables...", { type: "info" });
       setTimeout(() => {
-		  BdApi.Patcher.before("SplitLargeFiles", ZLibrary.WebpackModules.getByIndex(145337), "default", (_,a) => {
-			//Fix crashing issue
-			//console.log(a);
-			a[0] = String(a[0]);
-	      });
         BdApi.showToast("Downloadables refreshed", { type: "success" });
         this.findAvailableDownloads();
       }, 1e4);
@@ -621,7 +621,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           element.setAttribute("hidden", "");
         }
       } else {
-        Logger.error('Unable to find DOM object with selector #chat-messages-' + BdApi.findModuleByProps("getLastChannelFollowingDestination").getChannelId() + '-' + id);
+        Logger.warn('Unable to find DOM object with selector #chat-messages-' + BdApi.findModuleByProps("getLastChannelFollowingDestination").getChannelId() + '-' + id);
       }
     }
     setAttachmentVisibility(id, index, visible) {
