@@ -39,4 +39,4 @@ Downloading the file results in the reassembled original file being put in the d
 
 ## Changes made in this fork
 
-This fork simply forces the split size to always be 8MB regardless of the circumstances.
+This fork forces the split size to always be 8MB regardless of the circumstances and also implements general bug fixes that should probably be in the original repo but aren't.
