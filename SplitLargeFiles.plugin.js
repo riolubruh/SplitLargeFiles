@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.8.6
+ * @version 1.8.7
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,17 +47,17 @@ const config = {
                 twitter_username: "riolubruh"
             }
         ],
-        version: "1.8.6",
+        version: "1.8.7",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "1.8.6",
+            title: "1.8.7",
             items: [
-				"Fixed downloading after a Discord update that modified how downloads work.",
-				"Fixed a crashing issue."
+				"Fixed issue where files would display as an audio player",
+				"Replaced uses of getByIndex so hopefully Discord updates won't break the plugin as often"
             ]
         }
     ],
@@ -319,16 +319,16 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
                 }
             `);
 	  
-	  const uploadinator = ZLibrary.WebpackModules.getByIndex(56133);
+	  const uploadinator = ZLibrary.WebpackModules.getByProps("G", "d")
 	  BdApi.Patcher.instead("SplitLargeFiles", uploadinator, "d", (_, e) => {
 		  try{
 			  //console.log(e);
 			  var E = Array.from(e[0]).map((function(e) {
-			  return {
-				file: e,
-				platform: 1
+				  return {
+					file: e,
+					platform: 1
             }
-	  }));
+	  }))
 		  ZLibrary.WebpackModules.getByProps("addFiles").addFiles({
 			  files: E,
 			  channelId: e[1].id,
@@ -469,9 +469,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         this.findAvailableDownloads();
       };
       Dispatcher.subscribe("MESSAGE_DELETE", this.messageDelete);
-	  BdApi.Patcher.before("SplitLargeFiles", ZLibrary.WebpackModules.getByIndex(145337), "default", (_,a) => {
+	  BdApi.Patcher.before("SplitLargeFiles", ZLibrary.WebpackModules.getByProps("Url", "resolve", "resolveObject"), "parse", (_,a) => {
 		//Fix crashing issue
-		//console.log(a);
 		a[0] = String(a[0]);
 	  });
       BdApi.showToast("Waiting for BetterDiscord to load before refreshing downloadables...", { type: "info" });
