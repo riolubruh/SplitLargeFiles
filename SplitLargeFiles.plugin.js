@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.8.7
+ * @version 1.8.8
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,17 +47,18 @@ const config = {
                 twitter_username: "riolubruh"
             }
         ],
-        version: "1.8.7",
+        version: "1.8.8",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "1.8.7",
+            title: "1.8.8",
             items: [
-				"Fixed issue where files would display as an audio player",
-				"Replaced uses of getByIndex so hopefully Discord updates won't break the plugin as often"
+				"Fixed issue where downloadables would not render correctly.",
+				"Added the option to change the file split size to 8, 25, 50, 100, or 500 megabytes.",
+				"Changed the default file split size to 25MB."
             ]
         }
     ],
@@ -291,7 +292,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     }
   }
   const defaultSettingsData = {
-    deletionDelay: 9
+    deletionDelay: 9,
+	fileSplitSize: 26214400
   };
   let settings = null;
   const reloadSettings = () => {
@@ -389,10 +391,28 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) {
           return;
         }
-        const component = ret[0].props.children;
-        ret[0].props.children = /* @__PURE__ */ React.createElement(AttachmentShim, {
-          attachmentData: arg.attachments[0]
-        }, component);
+		let component;
+		if(ret.props?.children === undefined){
+			try{
+			  component = ret[0].props.children;
+			  ret[0].props.children = /* @__PURE__ */ React.createElement(AttachmentShim, {
+			  attachmentData: arg.attachments[0]
+			  }, component);
+			}catch(err){
+				console.warn("[SplitLargeFiles]" + err);
+			}
+		}else{
+			try{
+				component = ret.props.children;
+				ret.props.children = /* @__PURE__ */ React.createElement(AttachmentShim, {
+				  attachmentData: arg.attachments[0]
+				}, component);
+			}catch(err){
+				console.error("[SplitLargeFiles]" + err);
+			}
+			
+		}
+        
       });
       Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
 		//Below line commented out because it was causing downloads to happen twice
@@ -518,22 +538,33 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     }
     getSettingsPanel() {
       reloadSettings();
-      return new SettingPanel(() => {
+      const settingPanel = new SettingPanel(() => {
         PluginUtilities.saveSettings("SplitLargeFiles", settings);
       }, new Slider("Chunk File Deletion Delay", "How long to wait (in seconds) before deleting each sequential message of a chunk file. If you plan on deleting VERY large files you should set this value high to avoid API spam.", validActionDelays[0], validActionDelays[validActionDelays.length - 1], settings.deletionDelay, (newVal) => {
         if (newVal > validActionDelays[validActionDelays.length - 1] || newVal < validActionDelays[0]) {
           newVal = validActionDelays[0];
         }
         settings.deletionDelay = newVal;
-      }, { markers: validActionDelays, stickToMarkers: true })).getElement();
+      }, { markers: validActionDelays, stickToMarkers: true }),
+		new Settings.Dropdown("File Split Size", "Changes the size of the split files.", settings.fileSplitSize, [
+		{label: "8MB", value: 8387608},
+		{label: "25MB", value: 26214400},
+		{label: "50MB", value: 52428800},
+		{label: "100MB", value: 104333312},
+		{label: "500MB", value: 524288000}], value => settings.fileSplitSize = value, {searchable: true}
+		)
+	  ).getElement();
+	  settingPanel.style.paddingBottom = "75px"
+	  return settingPanel
     }
     maxFileUploadSize() {
 	  /*
 	  8MB: 8387608
+	  25MB: 26214400
 	  50MB: 52428800
 	  100MB: 104333312
 	  500MB: 524288000 */
-      return 8387608
+      return settings.fileSplitSize
 	}
     findAvailableDownloads() {
       this.registeredDownloads = [];
@@ -626,6 +657,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     setAttachmentVisibility(id, index, visible) {
       const parent = DOMTools.query('#message-accessories-' + id);
       const element = parent?.children[index];
+	  
       if (element) {
         if (visible) {
           parent.removeAttribute("style");
