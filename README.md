@@ -12,6 +12,8 @@ Automatic file splitting when uploading files larger than the upload limit...
 
 That gets visually reassembled once uploading is complete.
 
+###### Note that the recipient(s) must also have the plugin installed.
+
 ![File visually reassembled into original file](images/visualReassembly.png)
 
 Downloading the file results in the reassembled original file being put in the directory of your choice.
