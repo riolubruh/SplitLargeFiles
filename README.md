@@ -40,4 +40,4 @@ Downloading the file results in the reassembled original file being put in the t
 
 ## Changes made in this fork
 
-This fork forces the split size to always be 8MB regardless of the circumstances and also implements general bug fixes that should probably be in the original repo but aren't.
+This fork allows the user to choose the split size to be 8MB, 25MB, 50MB, 100MB, or 500MB regardless of their Nitro status, and also implements general bug fixes that should probably be in the original repo but aren't.
