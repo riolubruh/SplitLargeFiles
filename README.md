@@ -16,10 +16,9 @@ That gets visually reassembled once uploading is complete.
 
 ![File visually reassembled into original file](images/visualReassembly.png)
 
-Downloading the file results in the reassembled original file being put in the directory of your choice.
+Downloading the file results in the reassembled original file being put in the temp directory.
 
 ## Other Features
-- Choose where to save completed download
 - Manual refresh controls both per-message and per-channel in context menus
 - Automatic full-file deletion for your own chunk files that doesn't spam Discord's API
 - Full support for new multi-upload system with automatic rate limiting to prevent API spam
