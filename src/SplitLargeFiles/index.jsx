@@ -275,6 +275,7 @@ module.exports = (Plugin, Library) => {
              */
 
             Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{files, channelId}], original) => {
+                Logger.log("Adding and splitting files...");
                 let oversizedFiles = [], regularFiles = [];
                 for (const fileContainer of files) {
                     // Calculate chunks required
@@ -339,24 +340,28 @@ module.exports = (Plugin, Library) => {
             // Make sure all files pass size check
             Patcher.instead(FileCheckMod, getFunctionNameFromString(FileCheckMod, [/Array\.from\(.\)\.some\(\(function\(.\)/]), (_, __, ___) => false);
 
-            Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
-                if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) { return; }
+            // Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
+            //     if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) { return; }
 
-                const component = ret[0].props.children;
-                ret[0].props.children = (
-                    <AttachmentShim attachmentData={arg.attachments[0]}>
-                        {component}
-                    </AttachmentShim>
-                );
-            });
+            //     Logger.log(ret)
+            //     Logger.log(arg)
+            //     const component = ret[0].props.children;
+            //     ret[0].props.children = (
+            //         <AttachmentShim attachmentData={arg.attachments[0]}>
+            //             {component}
+            //         </AttachmentShim>
+            //     );
+            // });
 
             // Adds onClick to download arrow button that for some reason doesn't have it already
-            Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
-                ret.props.children[0].props.children[2].props.onClick = args[0].onClick;
-                if (args[0].dlfc) {
-                    ret.props.children[0].props.children[0] = <FileIcon/>;
-                }
-            });
+            // Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
+            //     Logger.log(ret)
+            //     Logger.log(args)
+            //     ret.props.children[0].props.children[2].props.onClick = args[0].onClick;
+            //     if (args[0].dlfc) {
+            //         ret.props.children[0].props.children[0] = <FileIcon/>;
+            //     }
+            // });
 
             /**
              * RENDER MODULE
@@ -400,7 +405,8 @@ module.exports = (Plugin, Library) => {
             // Manual refresh button in both channel and message menus
             this.messageContextMenuUnpatch = ContextMenu.patch("message", (tree, props) => {
                 const incomplete = this.incompleteDownloads.find(download => download.messages.some(message => message.id === props.message.id));
-                if (!(incomplete || this.registeredDownloads.find(download => download.messages.some(msg => msg.id === props.message.id)))) {
+                const registered = this.registeredDownloads.find(download => download.messages.some(msg => msg.id === props.message.id));
+                if (!(incomplete || registered)) {
                     return;
                 }
 
@@ -424,6 +430,14 @@ module.exports = (Plugin, Library) => {
                         ContextMenu.buildItem({label: "Delete Download Fragments", danger: true, action: () => {
                             this.deleteDownload(incomplete);
                             this.findAvailableDownloads();
+                        }})
+                    );
+                }
+
+                if (!incomplete) {
+                    tree.props.children[2].props.children.push(
+                        ContextMenu.buildItem({label: "Download Large File", action: () => {
+                            downloadFiles(registered);
                         }})
                     );
                 }
@@ -638,14 +652,14 @@ module.exports = (Plugin, Library) => {
                 // this.formatFirstDownloadMessage(download.messages[0].id, download);
 
                 // Hide the rest of the messages
-                for (let messageIndex = 1; messageIndex < download.messages.length; messageIndex++) {
-                    // If using multi-upload-per-messages, make sure only attachments are hidden
-                    if (download.messages[messageIndex].id === download.messages[0].id) {
-                        this.setAttachmentVisibility(download.messages[0].id, messageIndex, false);
-                    } else {
-                        this.setMessageVisibility(download.messages[messageIndex].id, false);
-                    }
-                }
+                // for (let messageIndex = 1; messageIndex < download.messages.length; messageIndex++) {
+                //     // If using multi-upload-per-messages, make sure only attachments are hidden
+                //     if (download.messages[messageIndex].id === download.messages[0].id) {
+                //         this.setAttachmentVisibility(download.messages[0].id, messageIndex, false);
+                //     } else {
+                //         this.setMessageVisibility(download.messages[messageIndex].id, false);
+                //     }
+                // }
             });
 
             if (this.registeredDownloads.length > 0) {
@@ -709,7 +723,7 @@ module.exports = (Plugin, Library) => {
                     if (excludeMessage && message.id === excludeMessage.id) {
                         continue;
                     }
-                    this.setMessageVisibility(message.id, true);
+                    // this.setMessageVisibility(message.id, true);
                     const downloadMessageIndex = download.messages.indexOf(downloadMessage);
                     download.messages.splice(downloadMessageIndex, 1);
                     setTimeout(() => this.deleteMessage(message), delayCount * settings.deletionDelay * 1000);

@@ -7,16 +7,14 @@
             "github_username": "ImTheSquid",
             "twitter_username": "ImTheSquid11"
         }],
-        "version": "1.8.0",
+        "version": "1.8.1",
         "description": "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         "github": "https://github.com/ImTheSquid/SplitLargeFiles",
         "github_raw": "https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"
     },
     "changelog": [
-        {"title": "New Discord New SplitLargeFiles", "items": [
-            "Updated to become compatible with new changes to Discord and BD",
-            "Added ability to copy all download links at once",
-            "Added refresh controls to user and channel context menus"
+        {"title": "Half-Fixes", "items": [
+            "Added temporary fix to be able to download files again. Use the right-click menu to download any given large file"
         ]}
     ],
     "main": "bundled.js"

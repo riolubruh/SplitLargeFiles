@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.8.0
+ * @version 1.8.1
  * @author ImTheSquid
  * @authorId 262055523896131584
  * @website https://github.com/ImTheSquid/SplitLargeFiles
@@ -41,18 +41,16 @@ const config = {
                 twitter_username: "ImTheSquid11"
             }
         ],
-        version: "1.8.0",
+        version: "1.8.1",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/ImTheSquid/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/ImTheSquid/SplitLargeFiles/master/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "New Discord New SplitLargeFiles",
+            title: "Half-Fixes",
             items: [
-                "Updated to become compatible with new changes to Discord and BD",
-                "Added ability to copy all download links at once",
-                "Added refresh controls to user and channel context menus"
+                "Added temporary fix to be able to download files again. Use the right-click menu to download any given large file"
             ]
         }
     ],
@@ -307,6 +305,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       this.registeredDownloads = [];
       this.incompleteDownloads = [];
       Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{ files, channelId }], original) => {
+        Logger.log("Adding and splitting files...");
         let oversizedFiles = [], regularFiles = [];
         for (const fileContainer of files) {
           const [numChunks, numChunksWithHeaders] = this.calcNumChunks(fileContainer.file);
@@ -347,21 +346,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         }
       });
       Patcher.instead(FileCheckMod, getFunctionNameFromString(FileCheckMod, [/Array\.from\(.\)\.some\(\(function\(.\)/]), (_, __, ___) => false);
-      Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
-        if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) {
-          return;
-        }
-        const component = ret[0].props.children;
-        ret[0].props.children = /* @__PURE__ */ React.createElement(AttachmentShim, {
-          attachmentData: arg.attachments[0]
-        }, component);
-      });
-      Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
-        ret.props.children[0].props.children[2].props.onClick = args[0].onClick;
-        if (args[0].dlfc) {
-          ret.props.children[0].props.children[0] = /* @__PURE__ */ React.createElement(FileIcon, null);
-        }
-      });
       this.messageCreate = (e) => {
         if (e.channelId === this.getCurrentChannel()?.id) {
           if (queuedUploads.has(e.channelId) && e.message.author.id === UserStore.getCurrentUser().id) {
@@ -387,7 +371,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       Dispatcher.subscribe("LOAD_MESSAGES_SUCCESS", this.loadMessagesSuccess);
       this.messageContextMenuUnpatch = ContextMenu.patch("message", (tree, props) => {
         const incomplete = this.incompleteDownloads.find((download) => download.messages.some((message) => message.id === props.message.id));
-        if (!(incomplete || this.registeredDownloads.find((download) => download.messages.some((msg) => msg.id === props.message.id)))) {
+        const registered = this.registeredDownloads.find((download) => download.messages.some((msg) => msg.id === props.message.id));
+        if (!(incomplete || registered)) {
           return;
         }
         tree.props.children[2].props.children.push(ContextMenu.buildItem({ type: "separator" }), ContextMenu.buildItem({ label: "Refresh Downloadables", action: () => {
@@ -404,6 +389,11 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           tree.props.children[2].props.children.push(ContextMenu.buildItem({ label: "Delete Download Fragments", danger: true, action: () => {
             this.deleteDownload(incomplete);
             this.findAvailableDownloads();
+          } }));
+        }
+        if (!incomplete) {
+          tree.props.children[2].props.children.push(ContextMenu.buildItem({ label: "Download Large File", action: () => {
+            downloadFiles(registered);
           } }));
         }
       });
@@ -545,13 +535,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       });
       this.registeredDownloads.forEach((download) => {
         download.messages.sort((first, second) => first.date - second.date);
-        for (let messageIndex = 1; messageIndex < download.messages.length; messageIndex++) {
-          if (download.messages[messageIndex].id === download.messages[0].id) {
-            this.setAttachmentVisibility(download.messages[0].id, messageIndex, false);
-          } else {
-            this.setMessageVisibility(download.messages[messageIndex].id, false);
-          }
-        }
       });
       if (this.registeredDownloads.length > 0) {
         Dispatcher.dispatch({
@@ -602,7 +585,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           if (excludeMessage && message.id === excludeMessage.id) {
             continue;
           }
-          this.setMessageVisibility(message.id, true);
           const downloadMessageIndex = download.messages.indexOf(downloadMessage);
           download.messages.splice(downloadMessageIndex, 1);
           setTimeout(() => this.deleteMessage(message), delayCount * settings.deletionDelay * 1e3);
