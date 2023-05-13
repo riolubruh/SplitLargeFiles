@@ -47,18 +47,16 @@ const config = {
                 twitter_username: "riolubruh"
             }
         ],
-        version: "1.8.8",
+        version: "1.8.9",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "1.8.8",
+            title: "Implement ImTheSquid's Half-Fix",
             items: [
-				"Fixed issue where downloadables would not render correctly.",
-				"Added the option to change the file split size to 8, 25, 50, 100, or 500 megabytes.",
-				"Changed the default file split size to 25MB."
+				"Copied from upstream: Added temporary fix to be able to download files again. Use the right-click menu to download any given large file"
             ]
         }
     ],
@@ -94,11 +92,11 @@ if (!global.ZeresPluginLibrary) {
 module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
      const plugin = (Plugin, Library) => {
   "use strict";
-  const { ContextMenu, Webpack } = BdApi;
+  const { ContextMenu, Webpack, React } = BdApi;
   const { byProps } = Webpack.Filters;
   const { Logger, Patcher, DiscordModules, DOMTools, PluginUtilities, Settings } = Library;
   const { SettingPanel, Slider } = Settings;
-  const { Dispatcher, React, SelectedChannelStore, SelectedGuildStore, UserStore, MessageStore, Permissions, ChannelStore, MessageActions } = DiscordModules;
+  const { Dispatcher, SelectedChannelStore, SelectedGuildStore, UserStore, MessageStore, Permissions, ChannelStore, MessageActions } = DiscordModules;
   const MessageAttachmentManager = Webpack.getModule(byProps("addFiles"));
   const FileCheckMod = Webpack.getModule((m) => Object.values(m).filter((v) => v?.toString).map((v) => v.toString()).some((v) => v.includes("getCurrentUser();") && v.includes("getUserMaxFileSize")));
   const MessageAccessories = Object.values(Webpack.getModule((m) => Object.values(m).some((k) => k?.prototype && Object.keys(k.prototype).includes("renderAttachments")))).find((v) => v?.prototype && Object.keys(v.prototype).includes("renderAttachments"));
@@ -276,6 +274,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       });
     }
     render() {
+	  console.log("render called");
       if (this.state.downloadData) {
         return React.createElement(Attachment[getFunctionNameFromString(Attachment, ["renderAdjacentContent"])], {
           filename: this.state.downloadData.filename + (this.state.downloadProgress > 0 ? ` - Downloading ${Math.round(this.state.downloadProgress * 100)}%` : ""),
@@ -387,37 +386,20 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         }
       });
       Patcher.instead(FileCheckMod, getFunctionNameFromString(FileCheckMod, [/Array\.from\(.\)\.some\(\(function\(.\)/]), (_, __, ___) => false);
-      Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
+      /*Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
+		  console.log(ret);
         if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) {
           return;
         }
-		let component;
-		if(ret.props?.children === undefined){
-			try{
-			  component = ret[0].props.children;
-			  ret[0].props.children = /* @__PURE__ */ React.createElement(AttachmentShim, {
-			  attachmentData: arg.attachments[0]
-			  }, component);
-			}catch(err){
-				console.warn("[SplitLargeFiles]" + err);
-			}
-		}else{
-			try{
-				component = ret.props.children;
-				ret.props.children = /* @__PURE__ */ React.createElement(AttachmentShim, {
-				  attachmentData: arg.attachments[0]
-				}, component);
-			}catch(err){
-				console.error("[SplitLargeFiles]" + err);
-			}
-			
-		}
-        
-      });
+		const component = ret.props.children;
+		
+		ret.props.children = React.createElement(AttachmentShim, {
+		  attachmentData: arg.attachments[0]
+		}, component);
+      });*/
       Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
-		//Below line commented out because it was causing downloads to happen twice
-        //ret.props.children[0].props.children[1].props.onClick = args[0].onClick;
-        if (args[0].dlfc) {
+        ret.props.children[0].props.children[1].props.onClick = args[0].onClick;
+        if (args[0].filename.endsWith(".dlfc")) {
           ret.props.children[0].props.children[0] = /* @__PURE__ */ React.createElement(FileIcon, null);
         }
       });
@@ -446,8 +428,9 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       Dispatcher.subscribe("LOAD_MESSAGES_SUCCESS", this.loadMessagesSuccess);
       this.messageContextMenuUnpatch = ContextMenu.patch("message", (tree, props) => {
         const incomplete = this.incompleteDownloads.find((download) => download.messages.some((message) => message.id === props.message.id));
-        if (!(incomplete || this.registeredDownloads.find((download) => download.messages.some((msg) => msg.id === props.message.id)))) {
-          return;
+        const registered = this.registeredDownloads.find((download) => download.messages.some((msg) => msg.id === props.message.id));
+        if (!(incomplete || registered)) {
+			return;
         }
         tree.props.children[2].props.children.push(ContextMenu.buildItem({ type: "separator" }), ContextMenu.buildItem({ label: "Refresh Downloadables", action: () => {
           this.findAvailableDownloads();
@@ -463,6 +446,11 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           tree.props.children[2].props.children.push(ContextMenu.buildItem({ label: "Delete Download Fragments", danger: true, action: () => {
             this.deleteDownload(incomplete);
             this.findAvailableDownloads();
+          } }));
+        }
+		if (!incomplete) {
+          tree.props.children[2].props.children.push(ContextMenu.buildItem({ label: "Download Large File", action: () => {
+            downloadFiles(registered);
           } }));
         }
       });
@@ -558,12 +546,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
 	  return settingPanel
     }
     maxFileUploadSize() {
-	  /*
-	  8MB: 8387608
-	  25MB: 26214400
-	  50MB: 52428800
-	  100MB: 104333312
-	  500MB: 524288000 */
       return settings.fileSplitSize
 	}
     findAvailableDownloads() {
@@ -581,12 +563,12 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           foundDLFCAttachment = true;
           const realName = this.extractRealFileName(attachment.filename);
           const existingEntry = this.registeredDownloads.find((element) => element.filename === realName && !element.foundParts.has(parseInt(attachment.filename)));
-          if (existingEntry) {
+          if(existingEntry){
             existingEntry.urls.push(attachment.url);
             existingEntry.messages.push({ id: message.id, date: message.timestamp, attachmentID: attachment.id });
             existingEntry.foundParts.add(parseInt(attachment.filename));
             existingEntry.totalSize += attachment.size;
-          } else {
+          }else{
             this.registeredDownloads.unshift({
               filename: realName,
               owner: message.author.id,
@@ -656,7 +638,10 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     }
     setAttachmentVisibility(id, index, visible) {
       const parent = DOMTools.query('#message-accessories-' + id);
-      const element = parent?.children[index];
+      let element = parent?.children[index];
+	  if(element === undefined){
+		  element = parent?.children[0].children[index];
+	  }
 	  
       if (element) {
         if (visible) {
