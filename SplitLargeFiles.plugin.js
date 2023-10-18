@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.8.8
+ * @version 1.9.0
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,16 +47,18 @@ const config = {
                 twitter_username: "riolubruh"
             }
         ],
-        version: "1.8.9",
+        version: "1.9.0",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "Implement ImTheSquid's Half-Fix",
+            title: "Fix shit",
             items: [
-				"Copied from upstream: Added temporary fix to be able to download files again. Use the right-click menu to download any given large file"
+				"Fixed split files not being made invisible",
+				"Fixed split files not downloading",
+				"Readded the \"save as\" dialog from the days of old."
             ]
         }
     ],
@@ -143,12 +145,12 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     }
     return true;
   };
-  function downloadFiles(download) {
+  async function downloadFiles(download) {
     const https = require("https");
     const fs = require("fs");
     const path = require("path");
 	const electron = require("electron");
-    const vals = new Uint8Array(16);
+    const vals = new Uint8Array(8);
     crypto.getRandomValues(vals);
     const id = Buffer.from(vals).toString("hex");
     const tempFolder = path.join(process.env.TMP, `dlfc-download-${id}`);
@@ -156,7 +158,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     BdApi.showToast("Downloading files...", { type: "info" });
     let promises = [];
     for (const url of download.urls) {
-      const chunkName = url.slice(url.lastIndexOf("/") + 1);
+      let chunkName = url.slice(url.lastIndexOf("/") + 1);
+	  chunkName = chunkName.slice(0, chunkName.indexOf("?"));
       const dest = path.join(tempFolder, chunkName);
       const file = fs.createWriteStream(dest);
       const downloadPromise = new Promise((resolve, reject) => {
@@ -176,9 +179,20 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       });
       promises.push(downloadPromise);
     }
+	let movelocation = await BdApi.UI.openDialog({
+		mode: "save",
+		title: "Save As",
+		showOverwriteConfirmation: true,
+		defaultPath: process.env.USERPROFILE + "\\Desktop\\" + download.filename
+	});
     Promise.all(promises).then((names) => {
       let fileBuffers = [];
-      for (const name of names) {
+      for (let name of names) {
+		name = name.slice(0, name.indexOf("?"));
+		console.log(name);
+		if(name.endsWith(".dlf")){
+			name += "c";
+		}
         fileBuffers.push(fs.readFileSync(path.join(tempFolder, name), null));
       }
       fileBuffers = fileBuffers.filter((buffer) => buffer.length >= 5 && buffer[0] === 223 && buffer[1] === 0);
@@ -209,20 +223,21 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
 			}
 		});
 		
+		console.log(movelocation);
 		//Move the downloaded file to movelocation
-		//fs.rename((path.join(tempFolder, `${download.filename}`)), movelocation);
-		electron.shell.showItemInFolder(path.join(tempFolder, `${download.filename}`));
+		fs.rename((path.join(tempFolder, `${download.filename}`)), movelocation.filePath);
+		//electron.shell.showItemInFolder(path.join(tempFolder, `${download.filename}`));
 		BdApi.showToast(("File downloaded to " + (path.join(tempFolder, `${download.filename}`))), { type: "success", timeout: 5000 });
 		downloadId(download).then((id2) => activeDownloads.delete(id2));
         Dispatcher.dispatch({
           type: "SLF_UPDATE_PROGRESS"
         });
-        //fs.rmdirSync(tempFolder, { recursive: true });
+        fs.rmdirSync(tempFolder, { recursive: true });
       });
     }).catch((err) => {
       Logger.error(err);
       BdApi.showToast("Failed to download file, please try again later.", { type: "error" });
-      //fs.rmdirSync(tempFolder, { recursive: true });
+      fs.rmdirSync(tempFolder, { recursive: true });
     });
   }
   function FileIcon() {
@@ -638,10 +653,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     }
     setAttachmentVisibility(id, index, visible) {
       const parent = DOMTools.query('#message-accessories-' + id);
-      let element = parent?.children[index];
-	  if(element === undefined){
-		  element = parent?.children[0].children[index];
-	  }
+      let element = parent?.lastChild?.children[index];
 	  
       if (element) {
         if (visible) {
