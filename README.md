@@ -16,7 +16,7 @@ That gets visually reassembled once uploading is complete.
 
 ![File visually reassembled into original file](images/visualReassembly.png)
 
-Downloading the file results in the reassembled original file being put in the temp directory.
+Downloading the file results in the reassembled original file being put in the directory of your choice.
 
 ## Other Features
 - Manual refresh controls both per-message and per-channel in context menus
