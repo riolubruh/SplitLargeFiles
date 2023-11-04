@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.9.0
+ * @version 1.9.1
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,18 +47,16 @@ const config = {
                 twitter_username: "riolubruh"
             }
         ],
-        version: "1.9.0",
+        version: "1.9.1",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
     },
     changelog: [
         {
-            title: "Fix shit",
+            title: "Fix shit again",
             items: [
-				"Fixed split files not being made invisible",
-				"Fixed split files not downloading",
-				"Readded the \"save as\" dialog from the days of old."
+				"Kinda fixed after Discord update that fucked everything up"
             ]
         }
     ],
@@ -101,8 +99,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
   const { Dispatcher, SelectedChannelStore, SelectedGuildStore, UserStore, MessageStore, Permissions, ChannelStore, MessageActions } = DiscordModules;
   const MessageAttachmentManager = Webpack.getModule(byProps("addFiles"));
   const FileCheckMod = Webpack.getModule((m) => Object.values(m).filter((v) => v?.toString).map((v) => v.toString()).some((v) => v.includes("getCurrentUser();") && v.includes("getUserMaxFileSize")));
-  const MessageAccessories = Object.values(Webpack.getModule((m) => Object.values(m).some((k) => k?.prototype && Object.keys(k.prototype).includes("renderAttachments")))).find((v) => v?.prototype && Object.keys(v.prototype).includes("renderAttachments"));
-  const Attachment = BdApi.Webpack.getModule((m) => Object.values(m).filter((v) => v?.toString).map((v) => v.toString()).some((s) => s.includes("renderAdjacentContent")));
+  const MessageAccessories = ZLibrary.WebpackModules.getByProps("MessageAccessories").MessageAccessories;
+  const Attachment = ZLibrary.WebpackModules.getByProps("isMediaAttachment", "default");
   const BATCH_SIZE = 10;
   const queuedUploads = /* @__PURE__ */ new Map();
   const activeDownloads = /* @__PURE__ */ new Map();
@@ -401,8 +399,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         }
       });
       Patcher.instead(FileCheckMod, getFunctionNameFromString(FileCheckMod, [/Array\.from\(.\)\.some\(\(function\(.\)/]), (_, __, ___) => false);
-      /*Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
-		  console.log(ret);
+      Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
         if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) {
           return;
         }
@@ -411,7 +408,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
 		ret.props.children = React.createElement(AttachmentShim, {
 		  attachmentData: arg.attachments[0]
 		}, component);
-      });*/
+      });
       Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
         ret.props.children[0].props.children[1].props.onClick = args[0].onClick;
         if (args[0].filename.endsWith(".dlfc")) {
