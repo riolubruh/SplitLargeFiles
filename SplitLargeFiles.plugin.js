@@ -54,9 +54,9 @@ const config = {
     },
     changelog: [
         {
-            title: "Fix shit again",
+            title: "Fix Your Files are too powerful",
             items: [
-				"Kinda fixed after Discord update that fucked everything up"
+				"fixed Your Files are too powerful error"
             ]
         }
     ],
