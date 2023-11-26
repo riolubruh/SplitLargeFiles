@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.9.1
+ * @version 1.9.2
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,7 +47,7 @@ const config = {
                 twitter_username: "riolubruh"
             }
         ],
-        version: "1.9.1",
+        version: "1.9.2",
         description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
         github: "https://github.com/riolubruh/SplitLargeFiles",
         github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
@@ -187,7 +187,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       let fileBuffers = [];
       for (let name of names) {
 		name = name.slice(0, name.indexOf("?"));
-		console.log(name);
+		//console.log(name);
 		if(name.endsWith(".dlf")){
 			name += "c";
 		}
@@ -221,7 +221,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
 			}
 		});
 		
-		console.log(movelocation);
+		//console.log(movelocation);
 		//Move the downloaded file to movelocation
 		fs.rename((path.join(tempFolder, `${download.filename}`)), movelocation.filePath);
 		//electron.shell.showItemInFolder(path.join(tempFolder, `${download.filename}`));
@@ -287,7 +287,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       });
     }
     render() {
-	  console.log("render called");
+	  //console.log("render called");
       if (this.state.downloadData) {
         return React.createElement(Attachment[getFunctionNameFromString(Attachment, ["renderAdjacentContent"])], {
           filename: this.state.downloadData.filename + (this.state.downloadProgress > 0 ? ` - Downloading ${Math.round(this.state.downloadProgress * 100)}%` : ""),
@@ -341,8 +341,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
 				  return {
 					file: e,
 					platform: 1
-            }
-	  }))
+				  }
+		      }))
 		  ZLibrary.WebpackModules.getByProps("addFiles").addFiles({
 			  files: E,
 			  channelId: e[1].id,
@@ -398,7 +398,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           });
         }
       });
-      Patcher.instead(FileCheckMod, getFunctionNameFromString(FileCheckMod, [/Array\.from\(.\)\.some\(\(function\(.\)/]), (_, __, ___) => false);
+      Patcher.instead(FileCheckMod, "anyFileTooLarge", () => false);
       Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
         if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) {
           return;
