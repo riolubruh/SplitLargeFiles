@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.9.3
+ * @version 1.9.4
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,17 +47,21 @@ const config = {
         twitter_username: "riolubruh"
       }
     ],
-    version: "1.9.3",
+    version: "1.9.4",
     description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
     github: "https://github.com/riolubruh/SplitLargeFiles",
     github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
   },
   changelog: [
     {
-      title: "1.9.3",
+      title: "1.9.4",
       items: [
-        "Fixed plugin compile error.",
-        "Added 10MB file split option."
+        "Fixed visuals for split files.",
+        "Fixed split files not doing the recontructing-download if you clicked on the download button or link of the file.",
+        "Fixed split files not showing the full file size.",
+        "Added explicit plugin update checking.",
+        "Fix 500MB limit error. Note that if your files are too large, it will error due to limitations baked into the Discord client itself.",
+        "Download progress is still not functional."
       ]
     }
   ],
@@ -95,15 +99,19 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     "use strict";
     const { ContextMenu, Webpack, React } = BdApi;
     const { byProps } = Webpack.Filters;
-    const { Logger, Patcher, DiscordModules, DOMTools, PluginUtilities, Settings } = Library;
+    const { Logger, Patcher, DiscordModules, DOMTools, PluginUtilities, Settings, PluginUpdater } = Library;
     const { SettingPanel, Slider } = Settings;
     const { Dispatcher, SelectedChannelStore, SelectedGuildStore, UserStore, MessageStore, Permissions, ChannelStore, MessageActions } = DiscordModules;
     const MessageAttachmentManager = Webpack.getModule(byProps("addFiles"));
     const FileCheckMod = Webpack.getModule((m) => Object.values(m).filter((v) => v?.toString).map((v) => v.toString()).some((v) => v.includes("getCurrentUser();") && v.includes("getUserMaxFileSize")));
-    //const MessageAccessories = BdApi.Webpack.getByKeys("MessageAccessories").MessageAccessories;
-    const MessageAccessories = BdApi.Webpack.getByKeys("$p", "BB").BB;
-    //const Attachment = BdApi.Webpack.getByKeys("isMediaAttachment", "default");
-    const Attachment = BdApi.Webpack.getAllByKeys("Z", "g").filter(o => o.g.toString().includes("attachment"))[0];
+    //const MessageAccessories = Webpack.getByKeys("MessageAccessories").MessageAccessories;
+    const MessageAccessories = Webpack.getByKeys("$p", "BB").BB;
+    //const Attachment = Webpack.getByKeys("isMediaAttachment", "default");
+    const Attachment = Webpack.getAllByKeys("Z", "g").filter(o => o.g.toString().includes("attachment"))[0];
+    const uploadinator = Webpack.getByKeys("G", "d");
+    //Hover Download button
+    const downloadButtonMod = Webpack.getAllByKeys("Z").filter(obj => obj.Z.toString().includes(`MEDIA_DOWNLOAD_BUTTON_TAPPED`))[0];
+    const upload = Webpack.getByKeys("addFiles");
     const BATCH_SIZE = 10;
     const queuedUploads = /* @__PURE__ */ new Map();
     const activeDownloads = /* @__PURE__ */ new Map();
@@ -190,7 +198,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         let fileBuffers = [];
         for (let name of names) {
           name = name.slice(0, name.indexOf("?"));
-          //console.log(name);
+
           if (name.endsWith(".dlf")) {
             name += "c";
           }
@@ -224,8 +232,12 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
             }
           });
 
-          //console.log(movelocation);
-          //Move the downloaded file to movelocation
+          /*
+          * Move the downloaded file to movelocation
+          * Most web browsers actually do something similar to this when downloading files
+          * (the download starts immediately and then you just choose where it gets saved)
+          * so this is actually fairly standard even though I had to do it for a completely different reason
+          */
           fs.rename((path.join(tempFolder, `${download.filename}`)), movelocation.filePath);
           //electron.shell.showItemInFolder(path.join(tempFolder, `${download.filename}`));
           BdApi.showToast(("File downloaded to " + (path.join(tempFolder, `${download.filename}`))), { type: "success", timeout: 5000 });
@@ -237,7 +249,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         });
       }).catch((err) => {
         Logger.error(err);
-        BdApi.showToast("Failed to download file, please try again later.", { type: "error" });
+        BdApi.showToast("Failed to download file. Check console for error output.", { type: "error" });
         fs.rmdirSync(tempFolder, { recursive: true });
       });
     }
@@ -333,19 +345,24 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
                 .slfClickable:hover .slfIcon {
                     color: var(--interactive-hover);
                 }
-            `);
+        `);
 
-        const uploadinator = BdApi.Webpack.getByKeys("G", "d")
-        BdApi.Patcher.instead("SplitLargeFiles", uploadinator, "d", (_, e) => {
+        //explicitly trigger plugin update
+        PluginUpdater.checkForUpdate(this.getName(), this.getVersion(), this._config.info.github_raw);
+
+        //Disable 500MB (basically a safety check) limit. 
+        const RealMaxFileSizeMod = Webpack.getByKeys("B", "Fm", "Lc", "zz");
+        RealMaxFileSizeMod.zz = Number.MAX_SAFE_INTEGER;
+
+        Patcher.instead(uploadinator, "d", (_, e) => {
           try {
-            //console.log(e);
             var E = Array.from(e[0]).map((function (e) {
               return {
                 file: e,
                 platform: 1
               }
             }))
-            BdApi.Webpack.getByKeys("addFiles").addFiles({
+            upload.addFiles({
               files: E,
               channelId: e[1].id,
               showLargeMessageDialog: false,
@@ -400,7 +417,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
             });
           }
         });
-        Patcher.instead(FileCheckMod, "anyFileTooLarge", () => false);
+        // Patcher.instead(FileCheckMod, "OC", () => {return Number.MAX_VALUE});
         Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
           if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) {
             return;
@@ -410,10 +427,63 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
             attachmentData: arg.attachments[0]
           }, component);
         });
+
+        Patcher.after(downloadButtonMod, "Z", (_, args, ret) => {
+          let registeredDownload = this.registeredDownloads.find((element) => element.urls.find((url) => url === args[0].href));
+          
+          if(registeredDownload){
+            //disable default download
+            ret.props.href = undefined;
+  
+            ret.props.onClick = (e) => {
+              e.stopPropagation();
+              downloadFiles(registeredDownload);
+            }
+          }
+
+        }); 
+
         Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
-          ret.props.children[0].props.children[1].props.onClick = args[0].onClick;
+          ret.props.children[0].props.children[1].props.onClick = args[0].onClick; //????
+
           if (args[0].fileName.endsWith(".dlfc")) {
+            //File Icon
             ret.props.children[0].props.children[0] = /* @__PURE__ */ React.createElement(FileIcon, null);
+
+            //For readability
+            let fileAnchor = ret.props.children[0].props.children[1].props.children[0].props.children.props;
+
+            //also for readability.  (me when no pass by ref keyword. those who know know)
+            let fileSize = ret.props.children[0].props.children[1].props.children[1].props;
+
+            //dont show split part number or DLFC file extension (the download doesnt get registered until you hover it)
+            fileAnchor.children = fileAnchor.children.replace(/^[0-99]-[0-99]_/, "").replace(/.dlfc$/, "");
+
+            let registeredDownload = this.registeredDownloads.find((element) => element.messages.find((message) => message.id === args[0].message.id));
+            if(registeredDownload) {
+              fileAnchor.children = registeredDownload.filename.replaceAll("_", " ");
+              fileSize.children = (registeredDownload.totalSize / 1024 / 1024).toFixed(2) + " MB • DLFC File";
+
+              
+              /* //Progress fix. Non-functional because we need async, but can't use async in this function.
+              if(activeDownloads.entries().toArray().length > 0){
+                // console.log(activeDownloads);
+                // console.log(registeredDownload);
+                // console.log(ret);
+                let digested = await crypto.subtle.digest("SHA-256", encoder.encode(registeredDownload.urls.join("")));
+                let downloadId = Buffer.from(digested).toString("base64");
+                console.log(activeDownloads.get(downloadId));
+              } */
+
+              //disable default download
+              fileAnchor.href = undefined;
+
+              //trigger SLF download on click
+              fileAnchor.onClick = (e) => {
+                e.stopPropagation();
+                downloadFiles(registeredDownload);
+              }
+            }
           }
         });
         this.messageCreate = (e) => {
@@ -502,7 +572,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           this.findAvailableDownloads();
         };
         Dispatcher.subscribe("MESSAGE_DELETE", this.messageDelete);
-        BdApi.Patcher.before("SplitLargeFiles", BdApi.Webpack.getByKeys("Url", "resolve", "resolveObject"), "parse", (_, a) => {
+        Patcher.before(Webpack.getByKeys("Url", "resolve", "resolveObject"), "parse", (_, a) => {
           //Fix crashing issue
           a[0] = String(a[0]);
         });
@@ -561,7 +631,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         }, { markers: validActionDelays, stickToMarkers: true }),
           new Settings.Dropdown("File Split Size", "Changes the size of the split files.", settings.fileSplitSize, [
             { label: "8MB", value: 8387608 },
-            { label: "10MB", value: 10433331 },
+            { label: "10MB", value: 10485759 },
             { label: "25MB", value: 26214400 },
             { label: "50MB", value: 52428800 },
             { label: "100MB", value: 104333312 },
