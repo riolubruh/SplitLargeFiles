@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.9.4
+ * @version 1.9.5
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,21 +47,17 @@ const config = {
         twitter_username: "riolubruh"
       }
     ],
-    version: "1.9.4",
+    version: "1.9.5",
     description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
     github: "https://github.com/riolubruh/SplitLargeFiles",
     github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
   },
   changelog: [
     {
-      title: "1.9.4",
+      title: "1.9.5",
       items: [
-        "Fixed visuals for split files.",
-        "Fixed split files not doing the recontructing-download if you clicked on the download button or link of the file.",
-        "Fixed split files not showing the full file size.",
-        "Added explicit plugin update checking.",
-        "Fix 500MB limit error. Note that if your files are too large, it will error due to limitations baked into the Discord client itself.",
-        "Download progress is still not functional."
+        "Implement custom download progress indicator.",
+        "Simplified how download progress is stored."
       ]
     }
   ],
@@ -115,13 +111,14 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     const BATCH_SIZE = 10;
     const queuedUploads = /* @__PURE__ */ new Map();
     const activeDownloads = /* @__PURE__ */ new Map();
-    async function downloadId(download) {
+    let registeredDownloads = new Array();
+ /*    async function downloadId(download) {
       if (!download)
         return null;
       const encoder = new TextEncoder();
       const digested = await crypto.subtle.digest("SHA-256", encoder.encode(download.urls.join("")));
       return Buffer.from(digested).toString("base64");
-    }
+    } */
     function getFunctionNameFromString(obj, search) {
       for (const [k, v] of Object.entries(obj)) {
         if (search.every((str) => v?.toString().match(str))) {
@@ -131,10 +128,10 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       return null;
     }
     async function addFileProgress(download, progress) {
-      if (activeDownloads.has(await downloadId(download))) {
-        activeDownloads.set(await downloadId(download), activeDownloads.get(await downloadId(download)) + progress);
+      if (activeDownloads.has(download.messages[0].id)) {
+        activeDownloads.set(download.messages[0].id, activeDownloads.get(download.messages[0].id) + progress);
       } else {
-        activeDownloads.set(await downloadId(download), progress);
+        activeDownloads.set(download.messages[0].id, progress);
       }
       Dispatcher.dispatch({
         type: "SLF_UPDATE_PROGRESS"
@@ -241,10 +238,13 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           fs.rename((path.join(tempFolder, `${download.filename}`)), movelocation.filePath);
           //electron.shell.showItemInFolder(path.join(tempFolder, `${download.filename}`));
           BdApi.showToast(("File downloaded to " + (path.join(tempFolder, `${download.filename}`))), { type: "success", timeout: 5000 });
-          downloadId(download).then((id2) => activeDownloads.delete(id2));
+          // downloadId(download).then((id2) => activeDownloads.delete(id2));
+          // activeDownloads.delete(download.messages[0].id);
+
           Dispatcher.dispatch({
             type: "SLF_UPDATE_PROGRESS"
           });
+
           fs.rmdirSync(tempFolder, { recursive: true });
         });
       }).catch((err) => {
@@ -261,7 +261,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         src: "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4xLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+Cjxzdmcgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgdmlld0JveD0iMCAwIDcyIDk2IiB2ZXJzaW9uPSIxLjEiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHhtbDpzcGFjZT0icHJlc2VydmUiIHhtbG5zOnNlcmlmPSJodHRwOi8vd3d3LnNlcmlmLmNvbS8iIHN0eWxlPSJmaWxsLXJ1bGU6ZXZlbm9kZDtjbGlwLXJ1bGU6ZXZlbm9kZDtzdHJva2UtbGluZWpvaW46cm91bmQ7c3Ryb2tlLW1pdGVybGltaXQ6MjsiPgogICAgPHBhdGggZD0iTTcyLDI5LjNMNzIsODkuNkM3Miw5MS44NCA3Miw5Mi45NiA3MS41Niw5My44MkM3MS4xOCw5NC41NiA3MC41Niw5NS4xOCA2OS44Miw5NS41NkM2OC45Niw5NiA2Ny44NCw5NiA2NS42LDk2TDYuNCw5NkM0LjE2LDk2IDMuMDQsOTYgMi4xOCw5NS41NkMxLjQ0LDk1LjE4IDAuODIsOTQuNTYgMC40NCw5My44MkMwLDkyLjk2IDAsOTEuODQgMCw4OS42TDAsNi40QzAsNC4xNiAwLDMuMDQgMC40NCwyLjE4QzAuODIsMS40NCAxLjQ0LDAuODIgMi4xOCwwLjQ0QzMuMDQsLTAgNC4xNiwtMCA2LjQsLTBMNDIuNywtMEM0NC42NiwtMCA0NS42NCwtMCA0Ni41NiwwLjIyQzQ3LjA2LDAuMzQgNDcuNTQsMC41IDQ4LDAuNzJMNDgsMTcuNkM0OCwxOS44NCA0OCwyMC45NiA0OC40NCwyMS44MkM0OC44MiwyMi41NiA0OS40NCwyMy4xOCA1MC4xOCwyMy41NkM1MS4wNCwyNCA1Mi4xNiwyNCA1NC40LDI0TDcxLjI4LDI0QzcxLjUsMjQuNDYgNzEuNjYsMjQuOTQgNzEuNzgsMjUuNDRDNzIsMjYuMzYgNzIsMjcuMzQgNzIsMjkuM1oiIHN0eWxlPSJmaWxsOnJnYigyMTEsMjE0LDI1Myk7ZmlsbC1ydWxlOm5vbnplcm87Ii8+CiAgICA8cGF0aCBkPSJNNjguMjYsMjAuMjZDNjkuNjQsMjEuNjQgNzAuMzIsMjIuMzIgNzAuODIsMjMuMTRDNzEsMjMuNDIgNzEuMTQsMjMuNyA3MS4yOCwyNEw1NC40LDI0QzUyLjE2LDI0IDUxLjA0LDI0IDUwLjE4LDIzLjU2QzQ5LjQ0LDIzLjE4IDQ4LjgyLDIyLjU2IDQ4LjQ0LDIxLjgyQzQ4LDIwLjk2IDQ4LDE5Ljg0IDQ4LDE3LjZMNDgsMC43MkM0OC4zLDAuODYgNDguNTgsMSA0OC44NiwxLjE4QzQ5LjY4LDEuNjggNTAuMzYsMi4zNiA1MS43NCwzLjc0TDY4LjI2LDIwLjI2WiIgc3R5bGU9ImZpbGw6cmdiKDE0NywxNTUsMjQ5KTtmaWxsLXJ1bGU6bm9uemVybzsiLz4KICAgIDxnIHRyYW5zZm9ybT0ibWF0cml4KDEsMCwwLDEsNC41LDcpIj4KICAgICAgICA8cmVjdCB4PSIxMSIgeT0iNDEiIHdpZHRoPSI0MSIgaGVpZ2h0PSIyOCIgc3R5bGU9ImZpbGw6cmdiKDE0NywxNTUsMjQ5KTsiLz4KICAgIDwvZz4KICAgIDxnIHRyYW5zZm9ybT0ibWF0cml4KDEsMCwwLDAuNSwtMiwyMy41KSI+CiAgICAgICAgPHJlY3QgeD0iMjEiIHk9IjM5IiB3aWR0aD0iMTAiIGhlaWdodD0iMTAiIHN0eWxlPSJmaWxsOnJnYigxNDcsMTU1LDI0OSk7Ii8+CiAgICA8L2c+CiAgICA8ZyB0cmFuc2Zvcm09Im1hdHJpeCgxLDAsMCwwLjUsMjIsMjMuNSkiPgogICAgICAgIDxyZWN0IHg9IjIxIiB5PSIzOSIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEwIiBzdHlsZT0iZmlsbDpyZ2IoMTQ3LDE1NSwyNDkpOyIvPgogICAgPC9nPgo8L3N2Zz4K"
       });
     }
-    class AttachmentShim extends React.Component {
+    /* class AttachmentShim extends React.Component {
       constructor(props) {
         super(props);
         this.child = props.children;
@@ -316,7 +316,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           return this.child;
         }
       }
-    }
+    } */
     const defaultSettingsData = {
       deletionDelay: 9,
       fileSplitSize: 26214400
@@ -375,7 +375,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         });
 
         reloadSettings();
-        this.registeredDownloads = [];
         this.incompleteDownloads = [];
         Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{ files, channelId }], original) => {
           let oversizedFiles = [], regularFiles = [];
@@ -417,19 +416,19 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
             });
           }
         });
-        // Patcher.instead(FileCheckMod, "OC", () => {return Number.MAX_VALUE});
+
         Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
           if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) {
             return;
           }
           const component = ret.props.children;
-          ret.props.children = React.createElement(AttachmentShim, {
+          /* ret.props.children = React.createElement(AttachmentShim, {
             attachmentData: arg.attachments[0]
-          }, component);
+          }, component); */
         });
 
         Patcher.after(downloadButtonMod, "Z", (_, args, ret) => {
-          let registeredDownload = this.registeredDownloads.find((element) => element.urls.find((url) => url === args[0].href));
+          let registeredDownload = registeredDownloads.find((element) => element.urls.find((url) => url === args[0].href));
           
           if(registeredDownload){
             //disable default download
@@ -442,6 +441,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           }
 
         }); 
+
+        Dispatcher.subscribe("SLF_UPDATE_PROGRESS", this.updateProgress);
 
         Patcher.after(Attachment, getFunctionNameFromString(Attachment, ["renderAdjacentContent"]), (_, args, ret) => {
           ret.props.children[0].props.children[1].props.onClick = args[0].onClick; //????
@@ -459,21 +460,10 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
             //dont show split part number or DLFC file extension (the download doesnt get registered until you hover it)
             fileAnchor.children = fileAnchor.children.replace(/^[0-99]-[0-99]_/, "").replace(/.dlfc$/, "");
 
-            let registeredDownload = this.registeredDownloads.find((element) => element.messages.find((message) => message.id === args[0].message.id));
+            let registeredDownload = registeredDownloads.find((element) => element.messages.find((message) => message.id === args[0].message.id));
             if(registeredDownload) {
               fileAnchor.children = registeredDownload.filename.replaceAll("_", " ");
               fileSize.children = (registeredDownload.totalSize / 1024 / 1024).toFixed(2) + " MB • DLFC File";
-
-              
-              /* //Progress fix. Non-functional because we need async, but can't use async in this function.
-              if(activeDownloads.entries().toArray().length > 0){
-                // console.log(activeDownloads);
-                // console.log(registeredDownload);
-                // console.log(ret);
-                let digested = await crypto.subtle.digest("SHA-256", encoder.encode(registeredDownload.urls.join("")));
-                let downloadId = Buffer.from(digested).toString("base64");
-                console.log(activeDownloads.get(downloadId));
-              } */
 
               //disable default download
               fileAnchor.href = undefined;
@@ -511,7 +501,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         Dispatcher.subscribe("LOAD_MESSAGES_SUCCESS", this.loadMessagesSuccess);
         this.messageContextMenuUnpatch = ContextMenu.patch("message", (tree, props) => {
           const incomplete = this.incompleteDownloads.find((download) => download.messages.some((message) => message.id === props.message.id));
-          const registered = this.registeredDownloads.find((download) => download.messages.some((msg) => msg.id === props.message.id));
+          const registered = registeredDownloads.find((download) => download.messages.some((msg) => msg.id === props.message.id));
           if (!(incomplete || registered)) {
             return;
           }
@@ -565,7 +555,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           if (e.channelId !== this.getCurrentChannel()?.id) {
             return;
           }
-          const download = this.registeredDownloads.find((element) => element.messages.find((message) => message.id === e.id));
+          const download = registeredDownloads.find((element) => element.messages.find((message) => message.id === e.id));
           if (download && this.canDeleteDownload(download)) {
             this.deleteDownload(download, e.id);
           }
@@ -582,8 +572,30 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           this.findAvailableDownloads();
         }, 1e4);
       }
+      updateProgress(){
+        activeDownloads.keys().forEach(key => {
+          let registeredDownload = registeredDownloads.find((element) => element.messages.find((message) => message.id === key));
+          if(document.getElementById("message-accessories-" + key)){
+            try{
+              let element = document.getElementById("message-accessories-" + key);
+              let attachment = element.children[0].children[0].children[0].children[0].children[1].children[1];
+              
+              attachment.innerHTML = (registeredDownload.totalSize / 1024 / 1024).toFixed(2) + " MB • DLFC File" + " • Downloading " + ( activeDownloads.get(key) / registeredDownload.totalSize * 100 ).toFixed(2) + "%";
+              
+              if(attachment.innerHTML.includes("100.00%")){
+                attachment.innerHTML = attachment.innerHTML.replace("Downloading 100.00%", "Download Complete");
+              }
+            }catch(e){
+              console.error(e);
+            }
+          }
+          if(activeDownloads.get(key) == registeredDownload.totalSize){
+            activeDownloads.delete(key);
+          }
+        });
+      }
       getFileURLsFromMessageId(messageId) {
-        const download = this.registeredDownloads.find((download2) => download2.messages.some((msg) => msg.id === messageId));
+        const download = registeredDownloads.find((download2) => download2.messages.some((msg) => msg.id === messageId));
         return download?.urls;
       }
       splitLargeFiles(fileContainers) {
@@ -645,7 +657,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         return settings.fileSplitSize
       }
       findAvailableDownloads() {
-        this.registeredDownloads = [];
+        registeredDownloads = [];
         this.incompleteDownloads = [];
         for (const message of this.getChannelMessages(this.getCurrentChannel()?.id) ?? []) {
           if (message.noDLFC) {
@@ -658,14 +670,14 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
             }
             foundDLFCAttachment = true;
             const realName = this.extractRealFileName(attachment.filename);
-            const existingEntry = this.registeredDownloads.find((element) => element.filename === realName && !element.foundParts.has(parseInt(attachment.filename)));
+            const existingEntry = registeredDownloads.find((element) => element.filename === realName && !element.foundParts.has(parseInt(attachment.filename)));
             if (existingEntry) {
               existingEntry.urls.push(attachment.url);
               existingEntry.messages.push({ id: message.id, date: message.timestamp, attachmentID: attachment.id });
               existingEntry.foundParts.add(parseInt(attachment.filename));
               existingEntry.totalSize += attachment.size;
             } else {
-              this.registeredDownloads.unshift({
+              registeredDownloads.unshift({
                 filename: realName,
                 owner: message.author.id,
                 urls: [attachment.url],
@@ -679,7 +691,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
             message.noDLFC = true;
           }
         }
-        this.registeredDownloads = this.registeredDownloads.filter((value, _, __) => {
+        registeredDownloads = registeredDownloads.filter((value, _, __) => {
           const chunkSet = /* @__PURE__ */ new Set();
           let highestChunk = 0;
           for (const url of value.urls) {
@@ -700,7 +712,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           }
           return result;
         });
-        this.registeredDownloads.forEach((download) => {
+        registeredDownloads.forEach((download) => {
           download.messages.sort((first, second) => first.date - second.date);
           for (let messageIndex = 1; messageIndex < download.messages.length; messageIndex++) {
             if (download.messages[messageIndex].id === download.messages[0].id) {
@@ -710,10 +722,10 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
             }
           }
         });
-        if (this.registeredDownloads.length > 0) {
+        if (registeredDownloads.length > 0) {
           Dispatcher.dispatch({
             type: "DLFC_REFRESH_DOWNLOADS",
-            downloads: this.registeredDownloads
+            downloads: registeredDownloads
           });
         }
       }
@@ -806,6 +818,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         Dispatcher.unsubscribe("CHANNEL_SELECT", this.channelSelect);
         Dispatcher.unsubscribe("MESSAGE_DELETE", this.messageDelete);
         Dispatcher.unsubscribe("LOAD_MESSAGES_SUCCESS", this.loadMessagesSuccess);
+        Dispatcher.unsubscribe("SLF_UPDATE_PROGRESS", this.updateProgress);
         BdApi.clearCSS("SplitLargeFiles");
       }
     }
