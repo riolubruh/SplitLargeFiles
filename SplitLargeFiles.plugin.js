@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.9.5
+ * @version 1.9.6
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,17 +47,18 @@ const config = {
         twitter_username: "riolubruh"
       }
     ],
-    version: "1.9.5",
+    version: "1.9.6",
     description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
     github: "https://github.com/riolubruh/SplitLargeFiles",
     github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
   },
   changelog: [
     {
-      title: "1.9.5",
+      title: "1.9.6",
       items: [
-        "Implement custom download progress indicator.",
-        "Simplified how download progress is stored."
+        "Clips compatibility.",
+        "YABDP4Nitro Clips Bypass compatibility.",
+        "Change default chunk deletion delay to 6s."
       ]
     }
   ],
@@ -107,7 +108,6 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
     const uploadinator = Webpack.getByKeys("G", "d");
     //Hover Download button
     const downloadButtonMod = Webpack.getAllByKeys("Z").filter(obj => obj.Z.toString().includes(`MEDIA_DOWNLOAD_BUTTON_TAPPED`))[0];
-    const upload = Webpack.getByKeys("addFiles");
     const BATCH_SIZE = 10;
     const queuedUploads = /* @__PURE__ */ new Map();
     const activeDownloads = /* @__PURE__ */ new Map();
@@ -318,7 +318,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
       }
     } */
     const defaultSettingsData = {
-      deletionDelay: 9,
+      deletionDelay: 6,
       fileSplitSize: 26214400
     };
     let settings = null;
@@ -356,13 +356,14 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
 
         Patcher.instead(uploadinator, "d", (_, e) => {
           try {
+            console.log(e);
             var E = Array.from(e[0]).map((function (e) {
               return {
                 file: e,
                 platform: 1
               }
             }))
-            upload.addFiles({
+            MessageAttachmentManager.addFiles({
               files: E,
               channelId: e[1].id,
               showLargeMessageDialog: false,
@@ -378,7 +379,23 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         this.incompleteDownloads = [];
         Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{ files, channelId }], original) => {
           let oversizedFiles = [], regularFiles = [];
-          for (const fileContainer of files) {
+          //for (const fileContainer of files) {
+          for(let i = 0; i < files.length; i++){
+            const fileContainer = files[i];
+            if(fileContainer.file.clip != undefined){
+              console.log("clip file");
+              continue;
+            }
+            console.log("fileContainer");
+            console.log(fileContainer);
+            if(fileContainer.file.type.startsWith("video/") && BdApi.Plugins.isEnabled("YABDP4Nitro")){
+              console.log("video and yabdp enabled");
+              const YABDP4NitroSettings = BdApi.getData("YABDP4Nitro", "settings");
+              if(YABDP4NitroSettings.useClipBypass && fileContainer.file.size <= 104857600){
+                console.log("useClipsBypass");
+                continue;
+              }
+            }
             const [numChunks, numChunksWithHeaders] = this.calcNumChunks(fileContainer.file);
             if (numChunks === 1) {
               regularFiles.push(fileContainer);
@@ -415,6 +432,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
               });
             });
           }
+          
         });
 
         Patcher.after(MessageAccessories.prototype, "renderAttachments", (_, [arg], ret) => {
@@ -566,11 +584,11 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           //Fix crashing issue
           a[0] = String(a[0]);
         });
-        BdApi.showToast("Waiting for BetterDiscord to load before refreshing downloadables...", { type: "info" });
+        //BdApi.showToast("Waiting for BetterDiscord to load before refreshing downloadables...", { type: "info" });
         setTimeout(() => {
-          BdApi.showToast("Downloadables refreshed", { type: "success" });
+          //BdApi.showToast("Downloadables refreshed", { type: "success" });
           this.findAvailableDownloads();
-        }, 1e4);
+        }, 100);
       }
       updateProgress(){
         activeDownloads.keys().forEach(key => {
@@ -643,10 +661,10 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         }, { markers: validActionDelays, stickToMarkers: true }),
           new Settings.Dropdown("File Split Size", "Changes the size of the split files.", settings.fileSplitSize, [
             { label: "8MB", value: 8387608 },
-            { label: "10MB", value: 10485759 },
+            { label: "10MB", value: 10485760 },
             { label: "25MB", value: 26214400 },
             { label: "50MB", value: 52428800 },
-            { label: "100MB", value: 104333312 },
+            { label: "100MB", value: 104857600 },
             { label: "500MB", value: 524288000 }], value => settings.fileSplitSize = value, { searchable: true }
           )
         ).getElement();
