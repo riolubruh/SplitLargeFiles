@@ -1,7 +1,7 @@
 /**
  * @name SplitLargeFiles
  * @description Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.
- * @version 1.9.6
+ * @version 1.9.7
  * @author ImTheSquid & Riolubruh
  * @authorId 262055523896131584
  * @website https://github.com/riolubruh/SplitLargeFiles
@@ -47,18 +47,16 @@ const config = {
         twitter_username: "riolubruh"
       }
     ],
-    version: "1.9.6",
+    version: "1.9.7",
     description: "Splits files larger than the upload limit into smaller chunks that can be redownloaded into a full file later.",
     github: "https://github.com/riolubruh/SplitLargeFiles",
     github_raw: "https://raw.githubusercontent.com/riolubruh/SplitLargeFiles/main/SplitLargeFiles.plugin.js"
   },
   changelog: [
     {
-      title: "1.9.6",
+      title: "1.9.7",
       items: [
-        "Clips compatibility.",
-        "YABDP4Nitro Clips Bypass compatibility.",
-        "Change default chunk deletion delay to 6s."
+        "Improved YABDP4Nitro compatibility."
       ]
     }
   ],
@@ -356,7 +354,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
 
         Patcher.instead(uploadinator, "d", (_, e) => {
           try {
-            console.log(e);
+            //console.log(e);
             var E = Array.from(e[0]).map((function (e) {
               return {
                 file: e,
@@ -379,22 +377,20 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
         this.incompleteDownloads = [];
         Patcher.instead(MessageAttachmentManager, "addFiles", (_, [{ files, channelId }], original) => {
           let oversizedFiles = [], regularFiles = [];
-          //for (const fileContainer of files) {
+          
           for(let i = 0; i < files.length; i++){
             const fileContainer = files[i];
             if(fileContainer.file.clip != undefined){
-              console.log("clip file");
               continue;
             }
-            console.log("fileContainer");
-            console.log(fileContainer);
+            
             if(fileContainer.file.type.startsWith("video/") && BdApi.Plugins.isEnabled("YABDP4Nitro")){
-              console.log("video and yabdp enabled");
+              
               const YABDP4NitroSettings = BdApi.getData("YABDP4Nitro", "settings");
               if(YABDP4NitroSettings.useClipBypass && fileContainer.file.size <= 104857600){
-                console.log("useClipsBypass");
                 continue;
               }
+
             }
             const [numChunks, numChunksWithHeaders] = this.calcNumChunks(fileContainer.file);
             if (numChunks === 1) {
@@ -418,6 +414,7 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
               if (fileArrayArray.length === 0) {
                 return;
               }
+              MessageAttachmentManager.clearAll(this.getCurrentChannel()?.id, 0);
               const fileArray = regularFiles.concat.apply([], fileArrayArray);
               if (queuedUploads.has(channelId)) {
                 queuedUploads.get(channelId).push(fileArray);
@@ -439,8 +436,8 @@ module.exports = !global.ZeresPluginLibrary ? Dummy : (([Plugin, Api]) => {
           if (!ret || arg.attachments.length === 0 || !arg.attachments[0].filename.endsWith(".dlfc")) {
             return;
           }
-          const component = ret.props.children;
-          /* ret.props.children = React.createElement(AttachmentShim, {
+          /*const component = ret.props.children;
+           ret.props.children = React.createElement(AttachmentShim, {
             attachmentData: arg.attachments[0]
           }, component); */
         });
